@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-aec-bg: #0f172a;
+  --color-aec-card: #1e293b;
+  --color-aec-accent: #10b981;
+  --color-aec-border: #334155;
+}
+
+@layer base {
+  body {
+    @apply bg-aec-bg text-slate-200 font-sans antialiased;
+  }
+}
+
+.glass-panel {
+  @apply bg-aec-card/50 backdrop-blur-md border border-aec-border rounded-xl;
+}
+
+.data-grid-line {
+  @apply border-b border-aec-border/50;
+}
