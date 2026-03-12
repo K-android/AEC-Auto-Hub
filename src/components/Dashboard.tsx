@@ -5,6 +5,7 @@ import AIAdvisor from './AIAdvisor';
 import WorkflowDiscovery from './WorkflowDiscovery';
 import AnalyticsView from './AnalyticsView';
 import SettingsView from './SettingsView';
+import { mockWorkflows } from '../data/mockWorkflows';
 import { 
   auth, 
   db, 
@@ -14,7 +15,9 @@ import {
   onSnapshot, 
   addDoc, 
   signOut,
-  Timestamp
+  Timestamp,
+  writeBatch,
+  doc
 } from '../firebase';
 import { 
   LayoutDashboard, 
@@ -127,6 +130,28 @@ export default function Dashboard() {
 
   const handleLogout = () => signOut(auth);
 
+  const handleSeedWorkflows = async () => {
+    if (!auth.currentUser) return;
+    setIsLoading(true);
+    try {
+      const batch = writeBatch(db);
+      mockWorkflows.forEach((w) => {
+        const newDocRef = doc(collection(db, 'workflows'));
+        const { id, ...workflowData } = w;
+        batch.set(newDocRef, {
+          ...workflowData,
+          userId: auth.currentUser?.uid,
+          createdAt: new Date().toISOString()
+        });
+      });
+      await batch.commit();
+    } catch (error) {
+      console.error("Failed to seed workflows:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const generateAIDescription = async () => {
     if (!newWorkflow.title) return;
     
@@ -231,6 +256,7 @@ export default function Dashboard() {
                 isLoading={isLoading} 
                 onSelectWorkflow={setSelectedWorkflow}
                 onOpenAddModal={() => setIsAddModalOpen(true)}
+                onSeedWorkflows={handleSeedWorkflows}
               />
             </div>
             <div className="space-y-6">

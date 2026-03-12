@@ -24,9 +24,10 @@ interface Props {
   isLoading: boolean;
   onSelectWorkflow: (w: Workflow) => void;
   onOpenAddModal: () => void;
+  onSeedWorkflows: () => void;
 }
 
-export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkflow, onOpenAddModal }: Props) {
+export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkflow, onOpenAddModal, onSeedWorkflows }: Props) {
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -108,8 +109,30 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
                 />
               ))
             ) : (
-              <div className="col-span-full py-20 text-center text-slate-500">
-                No workflows found matching your criteria.
+              <div className="col-span-full py-20 text-center glass-panel bg-aec-card/30 border-dashed border-2 border-aec-border">
+                <div className="max-w-xs mx-auto space-y-4">
+                  <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto">
+                    <Search className="w-6 h-6 text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-slate-300 font-medium">No workflows found</p>
+                    <p className="text-xs text-slate-500 mt-1">Start by adding your own or explore sample AEC workflows.</p>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={onOpenAddModal}
+                      className="w-full py-2 bg-aec-accent text-white rounded-lg text-sm font-bold hover:bg-emerald-600 transition-colors"
+                    >
+                      Add New Workflow
+                    </button>
+                    <button 
+                      onClick={onSeedWorkflows}
+                      className="w-full py-2 bg-slate-800 text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors border border-aec-border"
+                    >
+                      Explore Sample Workflows
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
