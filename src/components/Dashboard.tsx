@@ -55,6 +55,68 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
+  const [isDailyDiscoveryLoading, setIsDailyDiscoveryLoading] = useState(false);
+
+  useEffect(() => {
+    const checkDailyDiscovery = async () => {
+      if (!auth.currentUser || isLoading) return;
+
+      const today = new Date().toISOString().split('T')[0];
+      const storageKey = `lastDiscoveryDate_${auth.currentUser.uid}`;
+      const lastDiscoveryDate = localStorage.getItem(storageKey);
+
+      if (lastDiscoveryDate !== today) {
+        setIsDailyDiscoveryLoading(true);
+        await generateDailyDiscovery();
+        localStorage.setItem(storageKey, today);
+        setIsDailyDiscoveryLoading(false);
+      }
+    };
+
+    checkDailyDiscovery();
+  }, [auth.currentUser, isLoading]);
+
+  const generateDailyDiscovery = async () => {
+    if (!auth.currentUser) return;
+
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-latest",
+        contents: `Generate a unique and innovative AEC (Architecture, Engineering, Construction) automation workflow idea. 
+        The idea should be practical but forward-thinking.
+        Return it as a JSON object matching this structure:
+        {
+          "title": "string",
+          "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction",
+          "description": "string (max 2 sentences)",
+          "painPoint": "string",
+          "automationPotential": number (0-100),
+          "complexity": "Low" | "Medium" | "High",
+          "tools": ["string", "string"],
+          "roi": "Low" | "Medium" | "High" | "Very High",
+          "priority": "P0" | "P1" | "P2" | "P3",
+          "estimatedEffort": "string",
+          "successMetrics": "string"
+        }`,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      if (response.text) {
+        const workflowData = JSON.parse(response.text);
+        await addDoc(collection(db, 'workflows'), {
+          ...workflowData,
+          userId: auth.currentUser.uid,
+          createdAt: new Date().toISOString(),
+          isAIDiscovery: true
+        });
+      }
+    } catch (error) {
+      console.error("Failed to generate daily discovery:", error);
+    }
+  };
 
   // Form state
   const [newWorkflow, setNewWorkflow] = useState({
@@ -248,6 +310,22 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        {isDailyDiscoveryLoading && (
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-aec-accent/10 border border-aec-accent/20 rounded-xl flex items-center gap-4"
+          >
+            <div className="w-10 h-10 bg-aec-accent rounded-lg flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-white animate-pulse" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-sm font-bold text-slate-200">Generating Daily AI Discovery...</h4>
+              <p className="text-xs text-slate-400">Gemini is researching a new AEC automation idea for you.</p>
+            </div>
+          </motion.div>
+        )}
+
         {activeView === 'dashboard' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2">

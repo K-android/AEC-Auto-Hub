@@ -12,6 +12,8 @@ export interface Workflow {
   estimatedEffort: string;
   successMetrics: string;
   userId: string;
+  createdAt?: string;
+  isAIDiscovery?: boolean;
 }
 
 export interface AutomationIdea {
