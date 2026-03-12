@@ -76,13 +76,14 @@ export default function Dashboard() {
     checkDailyDiscovery();
   }, [auth.currentUser, isLoading]);
 
-  const generateDailyDiscovery = async () => {
+  const generateDailyDiscovery = async (isManual = false) => {
     if (!auth.currentUser) return;
 
+    setIsDailyDiscoveryLoading(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-latest",
+        model: "gemini-3-flash-preview",
         contents: `Generate a unique and innovative AEC (Architecture, Engineering, Construction) automation workflow idea. 
         The idea should be practical but forward-thinking.
         Return it as a JSON object matching this structure:
@@ -112,9 +113,19 @@ export default function Dashboard() {
           createdAt: new Date().toISOString(),
           isAIDiscovery: true
         });
+        
+        if (isManual) {
+          // If manual, we don't necessarily update the lastDiscoveryDate 
+          // to allow the auto-one to still run tomorrow if they just wanted an extra one today
+          // but for simplicity let's just say it counts as today's
+          const today = new Date().toISOString().split('T')[0];
+          localStorage.setItem(`lastDiscoveryDate_${auth.currentUser.uid}`, today);
+        }
       }
     } catch (error) {
       console.error("Failed to generate daily discovery:", error);
+    } finally {
+      setIsDailyDiscoveryLoading(false);
     }
   };
 
@@ -310,6 +321,29 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="flex justify-between items-center mb-8">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-100">
+              {activeView === 'dashboard' ? 'Workflow Dashboard' : 
+               activeView === 'analytics' ? 'Workflow Analytics' : 'System Settings'}
+            </h2>
+            <p className="text-slate-400 text-sm">
+              {activeView === 'dashboard' ? 'Manage and discover your AEC automation pipeline.' : 
+               activeView === 'analytics' ? 'Deep dive into your automation data.' : 'Configure your AI preferences.'}
+            </p>
+          </div>
+          {activeView === 'dashboard' && (
+            <button 
+              onClick={() => generateDailyDiscovery(true)}
+              disabled={isDailyDiscoveryLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-aec-accent/10 hover:bg-aec-accent/20 text-aec-accent rounded-lg border border-aec-accent/30 transition-all font-bold text-sm disabled:opacity-50"
+            >
+              <Sparkles className={cn("w-4 h-4", isDailyDiscoveryLoading && "animate-spin")} />
+              {isDailyDiscoveryLoading ? 'Discovering...' : 'Discover New Idea'}
+            </button>
+          )}
+        </div>
+
         {isDailyDiscoveryLoading && (
           <motion.div 
             initial={{ opacity: 0, y: -20 }}
@@ -366,20 +400,12 @@ export default function Dashboard() {
 
         {activeView === 'analytics' && (
           <div className="max-w-6xl mx-auto">
-            <header className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-100">Workflow Analytics</h2>
-              <p className="text-slate-400 text-sm">Deep dive into your automation data and sector performance.</p>
-            </header>
             <AnalyticsView workflows={workflows} />
           </div>
         )}
 
         {activeView === 'settings' && (
           <div className="max-w-4xl mx-auto">
-            <header className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-100">System Settings</h2>
-              <p className="text-slate-400 text-sm">Configure your AI preferences and manage your data.</p>
-            </header>
             <SettingsView />
           </div>
         )}
