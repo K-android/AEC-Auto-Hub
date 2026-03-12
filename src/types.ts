@@ -8,6 +8,10 @@ export interface Workflow {
   complexity: 'Low' | 'Medium' | 'High';
   tools: string[];
   roi: string;
+  priority: 'P0' | 'P1' | 'P2' | 'P3';
+  estimatedEffort: string;
+  successMetrics: string;
+  userId: string;
 }
 
 export interface AutomationIdea {

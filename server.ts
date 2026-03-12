@@ -21,6 +21,9 @@ db.exec(`
     complexity TEXT,
     tools TEXT,
     roi TEXT,
+    priority TEXT,
+    estimatedEffort TEXT,
+    successMetrics TEXT,
     createdAt TEXT
   )
 `);
@@ -84,12 +87,26 @@ const initialWorkflows = [
 ];
 
 const insertWorkflow = db.prepare(`
-  INSERT OR IGNORE INTO workflows (id, title, category, description, painPoint, automationPotential, complexity, tools, roi, createdAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT OR IGNORE INTO workflows (id, title, category, description, painPoint, automationPotential, complexity, tools, roi, priority, estimatedEffort, successMetrics, createdAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 initialWorkflows.forEach(w => {
-  insertWorkflow.run(w.id, w.title, w.category, w.description, w.painPoint, w.automationPotential, w.complexity, w.tools, w.roi, new Date().toISOString());
+  insertWorkflow.run(
+    w.id, 
+    w.title, 
+    w.category, 
+    w.description, 
+    w.painPoint, 
+    w.automationPotential, 
+    w.complexity, 
+    w.tools, 
+    w.roi, 
+    'P1', 
+    '2 weeks', 
+    'Time saved', 
+    new Date().toISOString()
+  );
 });
 
 async function generateDailyWorkflow() {
@@ -127,7 +144,21 @@ async function generateDailyWorkflow() {
 
     const data = JSON.parse(response.text);
     const id = Math.random().toString(36).substring(7);
-    insertWorkflow.run(id, data.title, data.category, data.description, data.painPoint, data.automationPotential, data.complexity, JSON.stringify(data.tools), data.roi, new Date().toISOString());
+    insertWorkflow.run(
+      id, 
+      data.title, 
+      data.category, 
+      data.description, 
+      data.painPoint, 
+      data.automationPotential, 
+      data.complexity, 
+      JSON.stringify(data.tools), 
+      data.roi,
+      data.priority || 'P2',
+      data.estimatedEffort || '1 month',
+      data.successMetrics || 'Efficiency gain',
+      new Date().toISOString()
+    );
     console.log("New workflow added:", data.title);
   } catch (error) {
     console.error("Failed to generate daily workflow:", error);
@@ -154,7 +185,7 @@ async function startServer() {
   });
 
   app.post("/api/workflows", (req, res) => {
-    const { title, category, description, painPoint, automationPotential, complexity, tools, roi } = req.body;
+    const { title, category, description, painPoint, automationPotential, complexity, tools, roi, priority, estimatedEffort, successMetrics } = req.body;
     
     if (!title || !category || !description) {
       return res.status(400).json({ error: "Missing required fields" });
@@ -172,6 +203,9 @@ async function startServer() {
         complexity || "Medium", 
         JSON.stringify(tools || []), 
         roi || "Medium", 
+        priority || "P2",
+        estimatedEffort || "",
+        successMetrics || "",
         new Date().toISOString()
       );
       res.status(201).json({ id, title });

@@ -6,6 +6,17 @@ import WorkflowDiscovery from './WorkflowDiscovery';
 import AnalyticsView from './AnalyticsView';
 import SettingsView from './SettingsView';
 import { 
+  auth, 
+  db, 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  addDoc, 
+  signOut,
+  Timestamp
+} from '../firebase';
+import { 
   LayoutDashboard, 
   Search, 
   Filter, 
@@ -20,10 +31,16 @@ import {
   X,
   Zap,
   Sparkles,
-  Loader2
+  Loader2,
+  Clock,
+  Target,
+  AlertCircle,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { GoogleGenAI } from "@google/genai";
 
 type View = 'dashboard' | 'analytics' | 'settings';
 
@@ -34,65 +51,100 @@ export default function Dashboard() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
 
   // Form state
   const [newWorkflow, setNewWorkflow] = useState({
     title: '',
-    category: 'Architecture',
+    category: 'Architecture' as Workflow['category'],
     description: '',
     painPoint: '',
     automationPotential: 50,
-    complexity: 'Medium',
+    complexity: 'Medium' as Workflow['complexity'],
     tools: '',
-    roi: 'Medium'
+    roi: 'Medium',
+    priority: 'P2' as Workflow['priority'],
+    estimatedEffort: '',
+    successMetrics: ''
   });
 
   useEffect(() => {
-    fetchWorkflows();
-  }, []);
+    if (!auth.currentUser) return;
 
-  const fetchWorkflows = async () => {
-    try {
-      const response = await fetch('/api/workflows');
-      const data = await response.json();
-      setWorkflows(data);
-    } catch (error) {
-      console.error("Failed to fetch workflows:", error);
-    } finally {
+    const q = query(
+      collection(db, 'workflows'),
+      where('userId', '==', auth.currentUser.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Workflow[];
+      setWorkflows(docs);
       setIsLoading(false);
-    }
-  };
+    }, (error) => {
+      console.error("Firestore error:", error);
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleAddWorkflow = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!auth.currentUser) return;
+    
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/workflows', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newWorkflow,
-          tools: newWorkflow.tools.split(',').map(t => t.trim()).filter(t => t !== '')
-        })
+      await addDoc(collection(db, 'workflows'), {
+        ...newWorkflow,
+        tools: newWorkflow.tools.split(',').map(t => t.trim()).filter(t => t !== ''),
+        userId: auth.currentUser.uid,
+        createdAt: new Date().toISOString()
       });
-      if (response.ok) {
-        setIsAddModalOpen(false);
-        setNewWorkflow({
-          title: '',
-          category: 'Architecture',
-          description: '',
-          painPoint: '',
-          automationPotential: 50,
-          complexity: 'Medium',
-          tools: '',
-          roi: 'Medium'
-        });
-        fetchWorkflows();
-      }
+      
+      setIsAddModalOpen(false);
+      setNewWorkflow({
+        title: '',
+        category: 'Architecture',
+        description: '',
+        painPoint: '',
+        automationPotential: 50,
+        complexity: 'Medium',
+        tools: '',
+        roi: 'Medium',
+        priority: 'P2',
+        estimatedEffort: '',
+        successMetrics: ''
+      });
     } catch (error) {
       console.error("Failed to add workflow:", error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleLogout = () => signOut(auth);
+
+  const generateAIDescription = async () => {
+    if (!newWorkflow.title) return;
+    
+    setIsGeneratingDescription(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-latest",
+        contents: `Generate a professional, concise description (max 2 sentences) for an AEC (Architecture, Engineering, Construction) workflow titled: "${newWorkflow.title}". Focus on the automation aspect.`,
+      });
+      
+      if (response.text) {
+        setNewWorkflow(prev => ({ ...prev, description: response.text.trim() }));
+      }
+    } catch (error) {
+      console.error("Failed to generate AI description:", error);
+    } finally {
+      setIsGeneratingDescription(false);
     }
   };
 
@@ -145,14 +197,27 @@ export default function Dashboard() {
           </button>
         </nav>
 
-        <div className="mt-auto p-4 glass-panel bg-aec-accent/5 border-aec-accent/20">
-          <div className="flex items-center gap-2 mb-2">
-            <Info className="w-3 h-3 text-aec-accent" />
-            <span className="text-[10px] uppercase font-bold text-aec-accent">Pro Tip</span>
+        <div className="pt-6 mt-auto border-t border-aec-border space-y-4">
+          <div className="flex items-center gap-3 px-3 py-2">
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-aec-border flex items-center justify-center overflow-hidden">
+              {auth.currentUser?.photoURL ? (
+                <img src={auth.currentUser.photoURL} alt="User" className="w-full h-full object-cover" />
+              ) : (
+                <UserIcon className="w-4 h-4 text-slate-400" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-200 truncate">{auth.currentUser?.displayName || 'User'}</p>
+              <p className="text-[10px] text-slate-500 truncate">{auth.currentUser?.email}</p>
+            </div>
           </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Use the AI Advisor to generate custom Dynamo scripts for your specific Revit tasks.
-          </p>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-red-400 hover:bg-red-500/5 rounded-lg transition-all"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="text-sm font-medium">Logout</span>
+          </button>
         </div>
       </aside>
 
@@ -279,6 +344,30 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                    <AlertCircle className="w-4 h-4 text-orange-400" />
+                    <div>
+                      <div className="text-[10px] uppercase text-slate-500 font-bold">Priority</div>
+                      <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.priority || 'P2'}</div>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                    <Clock className="w-4 h-4 text-blue-400" />
+                    <div>
+                      <div className="text-[10px] uppercase text-slate-500 font-bold">Effort</div>
+                      <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.estimatedEffort || 'N/A'}</div>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                    <Target className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="text-[10px] uppercase text-slate-500 font-bold">Success</div>
+                      <div className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{selectedWorkflow.successMetrics || 'N/A'}</div>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="pt-6 border-t border-aec-border">
                   <button 
                     onClick={() => {
@@ -335,12 +424,28 @@ export default function Dashboard() {
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Category</label>
                     <select 
                       value={newWorkflow.category}
-                      onChange={e => setNewWorkflow({...newWorkflow, category: e.target.value})}
+                      onChange={e => setNewWorkflow({...newWorkflow, category: e.target.value as any})}
                       className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
                     >
                       {categories.filter(c => c !== 'All').map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Priority</label>
+                    <select 
+                      value={newWorkflow.priority}
+                      onChange={e => setNewWorkflow({...newWorkflow, priority: e.target.value as any})}
+                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
+                    >
+                      <option value="P0">P0 - Critical</option>
+                      <option value="P1">P1 - High</option>
+                      <option value="P2">P2 - Medium</option>
+                      <option value="P3">P3 - Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Complexity</label>
                     <select 
@@ -352,42 +457,6 @@ export default function Dashboard() {
                       <option value="Medium">Medium</option>
                       <option value="High">High</option>
                     </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Description</label>
-                  <textarea 
-                    required
-                    value={newWorkflow.description}
-                    onChange={e => setNewWorkflow({...newWorkflow, description: e.target.value})}
-                    className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none h-24 resize-none"
-                    placeholder="Describe the workflow..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pain Point</label>
-                  <input 
-                    type="text"
-                    value={newWorkflow.painPoint}
-                    onChange={e => setNewWorkflow({...newWorkflow, painPoint: e.target.value})}
-                    className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
-                    placeholder="What is the main problem?"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Automation Potential (%)</label>
-                    <input 
-                      type="number"
-                      min="0"
-                      max="100"
-                      value={newWorkflow.automationPotential}
-                      onChange={e => setNewWorkflow({...newWorkflow, automationPotential: parseInt(e.target.value)})}
-                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
-                    />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">ROI</label>
@@ -401,6 +470,75 @@ export default function Dashboard() {
                       <option value="High">High</option>
                       <option value="Very High">Very High</option>
                     </select>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase">Description</label>
+                    <button 
+                      type="button"
+                      onClick={generateAIDescription}
+                      disabled={!newWorkflow.title || isGeneratingDescription}
+                      className="text-[10px] font-bold text-aec-accent hover:text-emerald-400 flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      {isGeneratingDescription ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      AI Suggest
+                    </button>
+                  </div>
+                  <textarea 
+                    required
+                    value={newWorkflow.description}
+                    onChange={e => setNewWorkflow({...newWorkflow, description: e.target.value})}
+                    className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none h-20 resize-none"
+                    placeholder="Describe the workflow..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Est. Effort</label>
+                    <input 
+                      type="text"
+                      value={newWorkflow.estimatedEffort}
+                      onChange={e => setNewWorkflow({...newWorkflow, estimatedEffort: e.target.value})}
+                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
+                      placeholder="e.g. 2 weeks"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Success Metrics</label>
+                    <input 
+                      type="text"
+                      value={newWorkflow.successMetrics}
+                      onChange={e => setNewWorkflow({...newWorkflow, successMetrics: e.target.value})}
+                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
+                      placeholder="e.g. 20% time reduction"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Pain Point</label>
+                    <input 
+                      type="text"
+                      value={newWorkflow.painPoint}
+                      onChange={e => setNewWorkflow({...newWorkflow, painPoint: e.target.value})}
+                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
+                      placeholder="What is the main problem?"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Potential (%)</label>
+                    <input 
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={newWorkflow.automationPotential}
+                      onChange={e => setNewWorkflow({...newWorkflow, automationPotential: parseInt(e.target.value)})}
+                      className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
+                    />
                   </div>
                 </div>
 

@@ -1,0 +1,50 @@
+{
+  "entities": {
+    "Workflow": {
+      "title": "Workflow",
+      "description": "An AEC workflow identified for automation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["Architecture", "BIM", "Structural", "MEP", "Construction"] },
+        "description": { "type": "string" },
+        "painPoint": { "type": "string" },
+        "automationPotential": { "type": "number" },
+        "complexity": { "type": "string", "enum": ["Low", "Medium", "High"] },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "roi": { "type": "string" },
+        "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+        "estimatedEffort": { "type": "string" },
+        "successMetrics": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "description", "userId"]
+    },
+    "AutomationIdea": {
+      "title": "Automation Idea",
+      "description": "A specific automation suggestion for a workflow",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workflowId": { "type": "string" },
+        "suggestion": { "type": "string" },
+        "techStack": { "type": "array", "items": { "type": "string" } },
+        "estimatedHoursSaved": { "type": "number" },
+        "userId": { "type": "string" }
+      },
+      "required": ["workflowId", "suggestion", "userId"]
+    }
+  },
+  "firestore": {
+    "/workflows/{workflowId}": {
+      "schema": "Workflow",
+      "description": "Collection of AEC workflows"
+    },
+    "/automationIdeas/{ideaId}": {
+      "schema": "AutomationIdea",
+      "description": "Collection of automation ideas"
+    }
+  }
+}

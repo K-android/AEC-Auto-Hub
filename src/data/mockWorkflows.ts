@@ -10,7 +10,11 @@ export const mockWorkflows: Workflow[] = [
     automationPotential: 95,
     complexity: 'Low',
     tools: ['Revit API', 'Dynamo', 'PyRevit'],
-    roi: 'High'
+    roi: 'High',
+    priority: 'P1',
+    estimatedEffort: '1 week',
+    successMetrics: '90% reduction in sheet setup time',
+    userId: 'mock-user'
   },
   {
     id: '2',
@@ -21,7 +25,11 @@ export const mockWorkflows: Workflow[] = [
     automationPotential: 80,
     complexity: 'Medium',
     tools: ['Navisworks API', 'BIM Track', 'Power BI'],
-    roi: 'Medium'
+    roi: 'Medium',
+    priority: 'P2',
+    estimatedEffort: '3 weeks',
+    successMetrics: 'Faster clash resolution tracking',
+    userId: 'mock-user'
   },
   {
     id: '3',
@@ -32,7 +40,11 @@ export const mockWorkflows: Workflow[] = [
     automationPotential: 85,
     complexity: 'Medium',
     tools: ['Dynamo', 'Rhino.Inside.Revit', 'Ideate BIMLink'],
-    roi: 'High'
+    roi: 'High',
+    priority: 'P1',
+    estimatedEffort: '2 weeks',
+    successMetrics: '100% data consistency',
+    userId: 'mock-user'
   },
   {
     id: '4',
@@ -43,7 +55,11 @@ export const mockWorkflows: Workflow[] = [
     automationPotential: 90,
     complexity: 'High',
     tools: ['Solibri', 'Revit Model Checker', 'Python'],
-    roi: 'Very High'
+    roi: 'Very High',
+    priority: 'P0',
+    estimatedEffort: '1 month',
+    successMetrics: 'Zero COBie compliance errors',
+    userId: 'mock-user'
   },
   {
     id: '5',
@@ -54,6 +70,10 @@ export const mockWorkflows: Workflow[] = [
     automationPotential: 70,
     complexity: 'Medium',
     tools: ['OpenSpace', 'HoloBuilder', 'AI Vision'],
-    roi: 'Medium'
+    roi: 'Medium',
+    priority: 'P2',
+    estimatedEffort: '2 weeks',
+    successMetrics: 'Searchable photo database',
+    userId: 'mock-user'
   }
 ];

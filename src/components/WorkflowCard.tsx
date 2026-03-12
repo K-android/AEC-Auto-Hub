@@ -25,9 +25,21 @@ export default function WorkflowCard({ workflow, onClick }: Props) {
       </div>
 
       <div className="flex justify-between items-start mb-3">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-aec-accent bg-aec-accent/10 px-2 py-0.5 rounded border border-aec-accent/20">
-          {workflow.category}
-        </span>
+        <div className="flex gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-aec-accent bg-aec-accent/10 px-2 py-0.5 rounded border border-aec-accent/20">
+            {workflow.category}
+          </span>
+          {workflow.priority && (
+            <span className={cn(
+              "text-[10px] font-bold px-2 py-0.5 rounded border",
+              workflow.priority === 'P0' ? "bg-red-500/10 text-red-400 border-red-500/20" :
+              workflow.priority === 'P1' ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+              "bg-slate-800 text-slate-400 border-aec-border"
+            )}>
+              {workflow.priority}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1">
           <Zap className={cn("w-3 h-3", getPotentialColor(workflow.automationPotential))} />
           <span className={cn("text-xs font-bold", getPotentialColor(workflow.automationPotential))}>

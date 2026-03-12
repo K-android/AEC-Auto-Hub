@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: workflows
+    // Document ID: auto-generated
+    // Fields:
+    //   - title: string (required)
+    //   - category: string (required)
+    //   - description: string (required)
+    //   - painPoint: string
+    //   - automationPotential: number
+    //   - complexity: string
+    //   - tools: list
+    //   - roi: string
+    //   - priority: string
+    //   - estimatedEffort: string
+    //   - successMetrics: string
+    //   - userId: string (required, owner)
+    //   - createdAt: string
+    //
+    // Collection: automationIdeas
+    // Document ID: auto-generated
+    // Fields:
+    //   - workflowId: string (required)
+    //   - suggestion: string (required)
+    //   - techStack: list
+    //   - estimatedHoursSaved: number
+    //   - userId: string (required, owner)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidWorkflow(data) {
+      return hasRequiredFields(['title', 'category', 'description', 'userId']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.category in ['Architecture', 'BIM', 'Structural', 'MEP', 'Construction'] &&
+             data.description is string && data.description.size() < 2000 &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidAutomationIdea(data) {
+      return hasRequiredFields(['workflowId', 'suggestion', 'userId']) &&
+             data.workflowId is string &&
+             data.suggestion is string && data.suggestion.size() < 2000 &&
+             data.userId == request.auth.uid;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /workflows/{workflowId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && isValidWorkflow(request.resource.data);
+      allow update: if isDocOwner() && isValidWorkflow(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    match /automationIdeas/{ideaId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && isValidAutomationIdea(request.resource.data);
+      allow update: if isDocOwner() && isValidAutomationIdea(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
