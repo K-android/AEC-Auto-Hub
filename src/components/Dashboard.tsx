@@ -246,7 +246,7 @@ export default function Dashboard() {
             <Cpu className="text-white w-6 h-6" />
           </div>
           <div>
-            <h1 className="font-bold text-lg leading-tight">AEC Auto</h1>
+            <h1 className="font-bold text-lg leading-tight">AEC Automator</h1>
             <p className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase">Workflow Hub</p>
           </div>
         </div>

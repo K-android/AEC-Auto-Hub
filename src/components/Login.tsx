@@ -29,7 +29,7 @@ export default function Login() {
         </div>
         
         <div>
-          <h1 className="text-3xl font-bold text-slate-100 mb-2">AEC Auto Hub</h1>
+          <h1 className="text-3xl font-bold text-slate-100 mb-2">AEC Workflow Automator</h1>
           <p className="text-slate-400">Securely manage and automate your AEC workflows in the cloud.</p>
         </div>
 
