@@ -19,7 +19,8 @@ import {
   Timestamp,
   writeBatch,
   doc,
-  updateDoc
+  updateDoc,
+  deleteDoc
 } from '../firebase';
 import { 
   LayoutDashboard, 
@@ -44,7 +45,8 @@ import {
   User as UserIcon,
   CheckCircle2,
   Image as ImageIcon,
-  Video
+  Video,
+  Trash2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -56,6 +58,7 @@ export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+  const [activeModalTab, setActiveModalTab] = useState<'details' | 'plan'>('details');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -63,6 +66,8 @@ export default function Dashboard() {
   const [isDailyDiscoveryLoading, setIsDailyDiscoveryLoading] = useState(false);
   const [automationTrigger, setAutomationTrigger] = useState<{ workflow: Workflow; timestamp: number } | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [workflowToDelete, setWorkflowToDelete] = useState<string | null>(null);
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -211,7 +216,7 @@ export default function Dashboard() {
   const handleLogout = () => signOut(auth);
 
   const handleSeedWorkflows = async () => {
-    if (!auth.currentUser) return;
+    if (!auth.currentUser || workflows.length > 0) return;
     setIsLoading(true);
     try {
       const batch = writeBatch(db);
@@ -268,7 +273,65 @@ export default function Dashboard() {
     }
   };
 
+  const handleDeleteWorkflow = async (id: string) => {
+    setIsUpdatingStatus(true);
+    try {
+      const workflowRef = doc(db, 'workflows', id);
+      await deleteDoc(workflowRef);
+      setSelectedWorkflow(null);
+      setWorkflowToDelete(null);
+    } catch (error) {
+      console.error("Failed to delete workflow:", error);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleCleanDuplicates = async () => {
+    if (!auth.currentUser || workflows.length === 0) return;
+    
+    setIsCleaningDuplicates(true);
+    try {
+      const seen = new Set();
+      const duplicates: string[] = [];
+      
+      // Sort by createdAt so we keep the oldest one
+      const sortedWorkflows = [...workflows].sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      sortedWorkflows.forEach(w => {
+        const key = `${w.title.toLowerCase()}_${w.category}`;
+        if (seen.has(key)) {
+          duplicates.push(w.id);
+        } else {
+          seen.add(key);
+        }
+      });
+
+      if (duplicates.length > 0) {
+        const batch = writeBatch(db);
+        duplicates.forEach(id => {
+          batch.delete(doc(db, 'workflows', id));
+        });
+        await batch.commit();
+        alert(`Successfully removed ${duplicates.length} duplicate workflows.`);
+      } else {
+        alert("No duplicates found.");
+      }
+    } catch (error) {
+      console.error("Failed to clean duplicates:", error);
+    } finally {
+      setIsCleaningDuplicates(false);
+    }
+  };
+
   const categories = ['All', 'Architecture', 'BIM', 'Structural', 'MEP', 'Construction'];
+
+  const handleSelectWorkflow = (workflow: Workflow) => {
+    setSelectedWorkflow(workflow);
+    setActiveModalTab('details');
+  };
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-aec-bg">
@@ -354,17 +417,29 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
         <div className="flex justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-100">
-              {activeView === 'dashboard' ? 'Workflow Dashboard' : 
-               activeView === 'completed' ? 'Completed Workflows' :
-               activeView === 'analytics' ? 'Workflow Analytics' : 'System Settings'}
-            </h2>
-            <p className="text-slate-400 text-sm">
-              {activeView === 'dashboard' ? 'Manage and discover your AEC automation pipeline.' : 
-               activeView === 'completed' ? 'Showcase of your automated AEC workflows and proofs.' :
-               activeView === 'analytics' ? 'Deep dive into your automation data.' : 'Configure your AI preferences.'}
-            </p>
+          <div className="flex items-center gap-6">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-100">
+                {activeView === 'dashboard' ? 'Workflow Dashboard' : 
+                 activeView === 'completed' ? 'Completed Workflows' :
+                 activeView === 'analytics' ? 'Workflow Analytics' : 'System Settings'}
+              </h2>
+              <p className="text-slate-400 text-sm">
+                {activeView === 'dashboard' ? 'Manage and discover your AEC automation pipeline.' : 
+                 activeView === 'completed' ? 'Showcase of your automated AEC workflows and proofs.' :
+                 activeView === 'analytics' ? 'Deep dive into your automation data.' : 'Configure your AI preferences.'}
+              </p>
+            </div>
+            {activeView === 'dashboard' && workflows.length > 0 && (
+              <button 
+                onClick={handleCleanDuplicates}
+                disabled={isCleaningDuplicates}
+                className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 rounded-lg border border-aec-border transition-all text-xs font-medium disabled:opacity-50"
+              >
+                <Trash2 className={cn("w-3 h-3", isCleaningDuplicates && "animate-pulse")} />
+                {isCleaningDuplicates ? 'Cleaning...' : 'Clean Duplicates'}
+              </button>
+            )}
           </div>
           {activeView === 'dashboard' && (
             <button 
@@ -400,7 +475,7 @@ export default function Dashboard() {
               <WorkflowDiscovery 
                 workflows={workflows} 
                 isLoading={isLoading} 
-                onSelectWorkflow={setSelectedWorkflow}
+                onSelectWorkflow={handleSelectWorkflow}
                 onOpenAddModal={() => setIsAddModalOpen(true)}
                 onSeedWorkflows={handleSeedWorkflows}
               />
@@ -468,106 +543,142 @@ export default function Dashboard() {
                   </div>
                   <h3 className="text-xl font-bold text-slate-100">{selectedWorkflow.title}</h3>
                 </div>
-                <button 
-                  onClick={() => setSelectedWorkflow(null)}
-                  className="p-2 hover:bg-slate-800 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-              
-              <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
-                <section>
-                  <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Description</h4>
-                  <p className="text-slate-300 leading-relaxed">{selectedWorkflow.description}</p>
-                </section>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <section>
-                    <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Pain Point</h4>
-                    <p className="text-slate-400 text-sm italic border-l-2 border-red-500/30 pl-4">{selectedWorkflow.painPoint}</p>
-                  </section>
-                  <section>
-                    <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Tech Stack</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedWorkflow.tools.map(tool => (
-                        <span key={tool} className="px-3 py-1 rounded-full bg-slate-800 border border-aec-border text-xs text-slate-300">
-                          {tool}
-                        </span>
-                      ))}
-                    </div>
-                  </section>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
-                    <div className="text-2xl font-bold text-aec-accent mb-1">{selectedWorkflow.automationPotential}%</div>
-                    <div className="text-[10px] uppercase text-slate-500 font-bold">Potential</div>
+                <div className="flex items-center gap-2">
+                  <div className="flex bg-slate-900 p-1 rounded-lg border border-aec-border mr-4">
+                    <button 
+                      onClick={() => setActiveModalTab('details')}
+                      className={cn(
+                        "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
+                        activeModalTab === 'details' ? "bg-aec-accent text-white" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      Details
+                    </button>
+                    <button 
+                      onClick={() => setActiveModalTab('plan')}
+                      className={cn(
+                        "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
+                        activeModalTab === 'plan' ? "bg-aec-accent text-white" : "text-slate-400 hover:text-slate-200"
+                      )}
+                    >
+                      Automation Plan
+                    </button>
                   </div>
-                  <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
-                    <div className="text-2xl font-bold text-slate-100 mb-1">{selectedWorkflow.complexity}</div>
-                    <div className="text-[10px] uppercase text-slate-500 font-bold">Complexity</div>
-                  </div>
-                  <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
-                    <div className="text-2xl font-bold text-emerald-400 mb-1">{selectedWorkflow.roi}</div>
-                    <div className="text-[10px] uppercase text-slate-500 font-bold">ROI</div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
-                    <AlertCircle className="w-4 h-4 text-orange-400" />
-                    <div>
-                      <div className="text-[10px] uppercase text-slate-500 font-bold">Priority</div>
-                      <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.priority || 'P2'}</div>
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
-                    <Clock className="w-4 h-4 text-blue-400" />
-                    <div>
-                      <div className="text-[10px] uppercase text-slate-500 font-bold">Effort</div>
-                      <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.estimatedEffort || 'N/A'}</div>
-                    </div>
-                  </div>
-                  <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
-                    <Target className="w-4 h-4 text-emerald-400" />
-                    <div>
-                      <div className="text-[10px] uppercase text-slate-500 font-bold">Success</div>
-                      <div className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{selectedWorkflow.successMetrics || 'N/A'}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 border-t border-aec-border">
                   <button 
                     onClick={() => {
-                      if (selectedWorkflow) {
-                        setAutomationTrigger({
-                          workflow: selectedWorkflow,
-                          timestamp: Date.now()
-                        });
-                        setSelectedWorkflow(null);
-                        // Scroll to AI Advisor
-                        const advisor = document.getElementById('ai-advisor');
-                        if (advisor) {
-                          advisor.scrollIntoView({ behavior: 'smooth' });
-                        }
-                      }
+                      setSelectedWorkflow(null);
+                      setActiveModalTab('details');
                     }}
-                    className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2 mb-3"
+                    className="p-2 hover:bg-slate-800 rounded-full transition-colors"
                   >
-                    <Sparkles className="w-5 h-5" />
-                    Generate Automation Plan
-                  </button>
-                  <button 
-                    onClick={() => markAsCompleted(selectedWorkflow.id)}
-                    disabled={isUpdatingStatus}
-                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-aec-border"
-                  >
-                    <CheckCircle2 className="w-5 h-5 text-aec-accent" />
-                    {isUpdatingStatus ? 'Updating...' : 'Mark as Completed'}
+                    <X className="w-5 h-5 text-slate-400" />
                   </button>
                 </div>
+              </div>
+              
+              <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto">
+                {activeModalTab === 'details' ? (
+                  <>
+                    <section>
+                      <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Description</h4>
+                      <p className="text-slate-300 leading-relaxed">{selectedWorkflow.description}</p>
+                    </section>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <section>
+                        <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Pain Point</h4>
+                        <p className="text-slate-400 text-sm italic border-l-2 border-red-500/30 pl-4">{selectedWorkflow.painPoint}</p>
+                      </section>
+                      <section>
+                        <h4 className="text-xs uppercase font-bold text-slate-500 mb-2 tracking-widest">Tech Stack</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedWorkflow.tools.map(tool => (
+                            <span key={tool} className="px-3 py-1 rounded-full bg-slate-800 border border-aec-border text-xs text-slate-300">
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
+                        <div className="text-2xl font-bold text-aec-accent mb-1">{selectedWorkflow.automationPotential}%</div>
+                        <div className="text-[10px] uppercase text-slate-500 font-bold">Potential</div>
+                      </div>
+                      <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
+                        <div className="text-2xl font-bold text-slate-100 mb-1">{selectedWorkflow.complexity}</div>
+                        <div className="text-[10px] uppercase text-slate-500 font-bold">Complexity</div>
+                      </div>
+                      <div className="p-4 rounded-xl bg-slate-900 border border-aec-border text-center">
+                        <div className="text-2xl font-bold text-emerald-400 mb-1">{selectedWorkflow.roi}</div>
+                        <div className="text-[10px] uppercase text-slate-500 font-bold">ROI</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                        <AlertCircle className="w-4 h-4 text-orange-400" />
+                        <div>
+                          <div className="text-[10px] uppercase text-slate-500 font-bold">Priority</div>
+                          <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.priority || 'P2'}</div>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                        <Clock className="w-4 h-4 text-blue-400" />
+                        <div>
+                          <div className="text-[10px] uppercase text-slate-500 font-bold">Effort</div>
+                          <div className="text-xs font-semibold text-slate-200">{selectedWorkflow.estimatedEffort || 'N/A'}</div>
+                        </div>
+                      </div>
+                      <div className="p-3 rounded-lg bg-slate-800/50 border border-aec-border flex items-center gap-3">
+                        <Target className="w-4 h-4 text-emerald-400" />
+                        <div>
+                          <div className="text-[10px] uppercase text-slate-500 font-bold">Success</div>
+                          <div className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{selectedWorkflow.successMetrics || 'N/A'}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-aec-border">
+                      <button 
+                        onClick={() => {
+                          if (selectedWorkflow) {
+                            setAutomationTrigger({
+                              workflow: selectedWorkflow,
+                              timestamp: Date.now()
+                            });
+                            setActiveModalTab('plan');
+                          }
+                        }}
+                        className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2 mb-3"
+                      >
+                        <Sparkles className="w-5 h-5" />
+                        Generate Automation Plan
+                      </button>
+                      <button 
+                        onClick={() => markAsCompleted(selectedWorkflow.id)}
+                        disabled={isUpdatingStatus}
+                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-aec-border mb-3"
+                      >
+                        <CheckCircle2 className="w-5 h-5 text-aec-accent" />
+                        {isUpdatingStatus ? 'Updating...' : 'Mark as Completed'}
+                      </button>
+                      <button 
+                        onClick={() => setWorkflowToDelete(selectedWorkflow.id)}
+                        disabled={isUpdatingStatus}
+                        className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-red-500/20"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                        Delete Workflow
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-[500px]">
+                    <AIAdvisor externalTrigger={automationTrigger} />
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
@@ -752,6 +863,42 @@ export default function Dashboard() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {workflowToDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="glass-panel w-full max-w-sm bg-aec-bg p-6 border-red-500/20"
+            >
+              <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-6 h-6 text-red-500" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-100 text-center mb-2">Delete Workflow?</h3>
+              <p className="text-sm text-slate-400 text-center mb-6">
+                This action cannot be undone. All associated data will be permanently removed.
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setWorkflowToDelete(null)}
+                  className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-bold transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => handleDeleteWorkflow(workflowToDelete)}
+                  disabled={isUpdatingStatus}
+                  className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+                >
+                  {isUpdatingStatus ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

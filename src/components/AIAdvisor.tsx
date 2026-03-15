@@ -24,7 +24,7 @@ export default function AIAdvisor({ externalTrigger }: Props) {
   useEffect(() => {
     if (externalTrigger) {
       const { workflow } = externalTrigger;
-      const prompt = `Generate a detailed automation plan for the following AEC workflow:
+      const prompt = `PLAN_REQUEST: Generate a detailed automation plan for the following EXISTING AEC workflow:
       Title: ${workflow.title}
       Category: ${workflow.category}
       Description: ${workflow.description}
@@ -49,6 +49,7 @@ export default function AIAdvisor({ externalTrigger }: Props) {
     setLastSuggestedWorkflow(null);
 
     try {
+      const isPlanRequest = userMessage.startsWith('PLAN_REQUEST:');
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [
@@ -56,7 +57,7 @@ export default function AIAdvisor({ externalTrigger }: Props) {
             role: "user",
             parts: [{ text: `You are an expert AEC (Architecture, Engineering, Construction) Automation Consultant. 
             
-            If the user describes a new workflow they want to add to their dashboard, you MUST return a JSON object with the workflow details.
+            ${isPlanRequest ? 'The user is requesting a detailed automation plan for an EXISTING workflow. Focus on technical implementation.' : 'If the user describes a new workflow they want to add to their dashboard, you MUST return a JSON object with the workflow details.'}
             If the user is just asking a general question, return a text response.
             
             User request: ${userMessage}` }]
@@ -64,10 +65,16 @@ export default function AIAdvisor({ externalTrigger }: Props) {
         ],
         config: {
           systemInstruction: `You are a specialized AI for AEC automation. 
-          If the user wants to add a workflow, provide the details in JSON format. 
+          
+          Intents:
+          - "ADD_WORKFLOW": Use this if the user describes a NEW task they want to track/automate.
+          - "PLAN": Use this if the user is asking for a technical implementation plan for a workflow (especially if the request starts with PLAN_REQUEST).
+          - "CHAT": Use this for general questions or conversation.
+
+          If the intent is ADD_WORKFLOW, provide the details in JSON format. 
           The JSON should have:
-          - "intent": "ADD_WORKFLOW" or "CHAT"
-          - "message": A helpful text response to the user.
+          - "intent": "ADD_WORKFLOW", "PLAN", or "CHAT"
+          - "message": A helpful text response to the user. For "PLAN", this should be the detailed guide in Markdown.
           - "workflow": (Only if intent is ADD_WORKFLOW) An object with:
             - "title": string
             - "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction"
@@ -79,6 +86,7 @@ export default function AIAdvisor({ externalTrigger }: Props) {
             - "roi": string
             - "priority": "P0" | "P1" | "P2" | "P3"
             - "estimatedEffort": string
+            - "workflowId": string (if applicable)
             - "successMetrics": string`,
           responseMimeType: "application/json",
           responseSchema: {
@@ -110,7 +118,8 @@ export default function AIAdvisor({ externalTrigger }: Props) {
       const data = JSON.parse(response.text || '{}');
       const assistantMessage = data.message || "I've analyzed your request.";
       
-      if (data.intent === 'ADD_WORKFLOW' && data.workflow) {
+      // Only suggest adding if it's explicitly a NEW workflow suggestion
+      if (data.intent === 'ADD_WORKFLOW' && data.workflow && !isPlanRequest) {
         setLastSuggestedWorkflow(data.workflow);
       }
 

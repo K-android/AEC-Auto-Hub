@@ -109,7 +109,7 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
                   onClick={onSelectWorkflow}
                 />
               ))
-            ) : (
+            ) : workflows.length === 0 ? (
               <div className="col-span-full py-20 text-center glass-panel bg-aec-card/30 border-dashed border-2 border-aec-border">
                 <div className="max-w-xs mx-auto space-y-4">
                   <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto">
@@ -133,6 +133,27 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
                       Explore Sample Workflows
                     </button>
                   </div>
+                </div>
+              </div>
+            ) : (
+              <div className="col-span-full py-20 text-center glass-panel bg-aec-card/30 border-dashed border-2 border-aec-border">
+                <div className="max-w-xs mx-auto space-y-4">
+                  <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto">
+                    <Filter className="w-6 h-6 text-slate-500" />
+                  </div>
+                  <div>
+                    <p className="text-slate-300 font-medium">No matches found</p>
+                    <p className="text-xs text-slate-500 mt-1">Try adjusting your filters or search query.</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setSelectedCategory('All');
+                      setSearchQuery('');
+                    }}
+                    className="w-full py-2 bg-slate-800 text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors border border-aec-border"
+                  >
+                    Clear All Filters
+                  </button>
                 </div>
               </div>
             )}
