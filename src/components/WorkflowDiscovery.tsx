@@ -34,6 +34,7 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
   const categories = ['All', 'Architecture', 'BIM', 'Structural', 'MEP', 'Construction'];
 
   const filteredWorkflows = workflows.filter(w => {
+    if (w.status === 'Completed') return false;
     const matchesCategory = selectedCategory === 'All' || w.category === selectedCategory;
     const matchesSearch = w.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
                          w.description.toLowerCase().includes(searchQuery.toLowerCase());

@@ -1,23 +1,52 @@
-import React, { useState } from 'react';
-import { GoogleGenAI } from "@google/genai";
-import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { GoogleGenAI, Type } from "@google/genai";
+import { Send, Bot, User, Loader2, Sparkles, PlusCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '../lib/utils';
+import { Workflow } from '../types';
+import { auth, db, collection, addDoc } from '../firebase';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-export default function AIAdvisor() {
+interface Props {
+  externalTrigger?: {
+    workflow: Workflow;
+    timestamp: number;
+  } | null;
+}
+
+export default function AIAdvisor({ externalTrigger }: Props) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastSuggestedWorkflow, setLastSuggestedWorkflow] = useState<Partial<Workflow> | null>(null);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  useEffect(() => {
+    if (externalTrigger) {
+      const { workflow } = externalTrigger;
+      const prompt = `Generate a detailed automation plan for the following AEC workflow:
+      Title: ${workflow.title}
+      Category: ${workflow.category}
+      Description: ${workflow.description}
+      Pain Point: ${workflow.painPoint}
+      Current Tools: ${workflow.tools.join(', ')}
+      
+      Please provide a step-by-step implementation guide, specific API/tool recommendations, and potential roadblocks.`;
+      
+      handleSend(prompt);
+    }
+  }, [externalTrigger]);
 
-    const userMessage = input;
-    setInput('');
+  const handleSend = async (overrideInput?: string) => {
+    const messageToSend = overrideInput || input;
+    if (!messageToSend.trim()) return;
+
+    const userMessage = messageToSend;
+    if (!overrideInput) setInput('');
+    
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
+    setLastSuggestedWorkflow(null);
 
     try {
       const response = await ai.models.generateContent({
@@ -26,20 +55,65 @@ export default function AIAdvisor() {
           {
             role: "user",
             parts: [{ text: `You are an expert AEC (Architecture, Engineering, Construction) Automation Consultant. 
-            The user wants to automate a workflow. Provide a detailed strategy including:
-            1. Recommended tools (Revit API, Dynamo, Grasshopper, Python, etc.)
-            2. High-level logic steps.
-            3. Estimated difficulty and ROI.
+            
+            If the user describes a new workflow they want to add to their dashboard, you MUST return a JSON object with the workflow details.
+            If the user is just asking a general question, return a text response.
             
             User request: ${userMessage}` }]
           }
         ],
         config: {
-          systemInstruction: "You are a specialized AI for AEC automation. Be technical, precise, and helpful. Focus on BIM standards and industry-standard tools.",
+          systemInstruction: `You are a specialized AI for AEC automation. 
+          If the user wants to add a workflow, provide the details in JSON format. 
+          The JSON should have:
+          - "intent": "ADD_WORKFLOW" or "CHAT"
+          - "message": A helpful text response to the user.
+          - "workflow": (Only if intent is ADD_WORKFLOW) An object with:
+            - "title": string
+            - "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction"
+            - "description": string
+            - "painPoint": string
+            - "automationPotential": number (0-100)
+            - "complexity": "Low" | "Medium" | "High"
+            - "tools": string[]
+            - "roi": string
+            - "priority": "P0" | "P1" | "P2" | "P3"
+            - "estimatedEffort": string
+            - "successMetrics": string`,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              intent: { type: Type.STRING },
+              message: { type: Type.STRING },
+              workflow: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  category: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  painPoint: { type: Type.STRING },
+                  automationPotential: { type: Type.NUMBER },
+                  complexity: { type: Type.STRING },
+                  tools: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  roi: { type: Type.STRING },
+                  priority: { type: Type.STRING },
+                  estimatedEffort: { type: Type.STRING },
+                  successMetrics: { type: Type.STRING }
+                }
+              }
+            }
+          }
         }
       });
 
-      const assistantMessage = response.text || "I couldn't generate a response. Please try again.";
+      const data = JSON.parse(response.text || '{}');
+      const assistantMessage = data.message || "I've analyzed your request.";
+      
+      if (data.intent === 'ADD_WORKFLOW' && data.workflow) {
+        setLastSuggestedWorkflow(data.workflow);
+      }
+
       setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage }]);
     } catch (error) {
       console.error("AI Error:", error);
@@ -49,8 +123,29 @@ export default function AIAdvisor() {
     }
   };
 
+  const handleAddSuggestedWorkflow = async () => {
+    if (!lastSuggestedWorkflow || !auth.currentUser) return;
+    
+    setIsLoading(true);
+    try {
+      await addDoc(collection(db, 'workflows'), {
+        ...lastSuggestedWorkflow,
+        userId: auth.currentUser.uid,
+        createdAt: new Date().toISOString(),
+        status: 'Pending'
+      });
+      setMessages(prev => [...prev, { role: 'assistant', content: "✅ I've added that workflow to your dashboard!" }]);
+      setLastSuggestedWorkflow(null);
+    } catch (error) {
+      console.error("Error adding workflow:", error);
+      setMessages(prev => [...prev, { role: 'assistant', content: "Failed to add the workflow. Please try again." }]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-[600px] glass-panel overflow-hidden">
+    <div id="ai-advisor" className="flex flex-col h-[600px] glass-panel overflow-hidden">
       <div className="p-4 border-b border-aec-border flex items-center gap-2 bg-aec-card/80">
         <Bot className="w-5 h-5 text-aec-accent" />
         <h2 className="font-semibold text-slate-100">Automation Advisor</h2>
@@ -86,6 +181,23 @@ export default function AIAdvisor() {
               <div className="prose prose-invert prose-sm max-w-none">
                 <ReactMarkdown>{msg.content}</ReactMarkdown>
               </div>
+              
+              {msg.role === 'assistant' && i === messages.length - 1 && lastSuggestedWorkflow && (
+                <div className="mt-4 pt-4 border-t border-aec-border">
+                  <p className="text-xs text-slate-400 mb-3">I can add this to your dashboard:</p>
+                  <div className="bg-slate-900/50 p-3 rounded-lg border border-aec-accent/20 mb-3">
+                    <h4 className="font-bold text-aec-accent text-xs">{lastSuggestedWorkflow.title}</h4>
+                    <p className="text-[10px] text-slate-500 mt-1">{lastSuggestedWorkflow.description}</p>
+                  </div>
+                  <button 
+                    onClick={handleAddSuggestedWorkflow}
+                    className="flex items-center gap-2 px-4 py-2 bg-aec-accent text-white rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors w-full justify-center"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Add to Dashboard
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -112,7 +224,7 @@ export default function AIAdvisor() {
             className="w-full bg-slate-900 border border-aec-border rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-aec-accent/50 transition-all"
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={isLoading || !input.trim()}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-aec-accent hover:bg-aec-accent/10 rounded-lg disabled:opacity-50 transition-colors"
           >

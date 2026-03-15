@@ -5,6 +5,7 @@ import AIAdvisor from './AIAdvisor';
 import WorkflowDiscovery from './WorkflowDiscovery';
 import AnalyticsView from './AnalyticsView';
 import SettingsView from './SettingsView';
+import CompletedWorkflows from './CompletedWorkflows';
 import { mockWorkflows } from '../data/mockWorkflows';
 import { 
   auth, 
@@ -17,7 +18,8 @@ import {
   signOut,
   Timestamp,
   writeBatch,
-  doc
+  doc,
+  updateDoc
 } from '../firebase';
 import { 
   LayoutDashboard, 
@@ -39,13 +41,16 @@ import {
   Target,
   AlertCircle,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  CheckCircle2,
+  Image as ImageIcon,
+  Video
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 
-type View = 'dashboard' | 'analytics' | 'settings';
+type View = 'dashboard' | 'completed' | 'analytics' | 'settings';
 
 export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>('dashboard');
@@ -56,6 +61,8 @@ export default function Dashboard() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [isDailyDiscoveryLoading, setIsDailyDiscoveryLoading] = useState(false);
+  const [automationTrigger, setAutomationTrigger] = useState<{ workflow: Workflow; timestamp: number } | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -246,6 +253,21 @@ export default function Dashboard() {
     }
   };
 
+  const markAsCompleted = async (id: string) => {
+    setIsUpdatingStatus(true);
+    try {
+      const workflowRef = doc(db, 'workflows', id);
+      await updateDoc(workflowRef, {
+        status: 'Completed'
+      });
+      setSelectedWorkflow(null);
+    } catch (error) {
+      console.error("Error marking as completed:", error);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   const categories = ['All', 'Architecture', 'BIM', 'Structural', 'MEP', 'Construction'];
 
   return (
@@ -282,6 +304,16 @@ export default function Dashboard() {
           >
             <BarChart className="w-4 h-4" />
             Analytics
+          </button>
+          <button 
+            onClick={() => setActiveView('completed')}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+              activeView === 'completed' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+            )}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            Completed
           </button>
           <button 
             onClick={() => setActiveView('settings')}
@@ -325,10 +357,12 @@ export default function Dashboard() {
           <div>
             <h2 className="text-2xl font-bold text-slate-100">
               {activeView === 'dashboard' ? 'Workflow Dashboard' : 
+               activeView === 'completed' ? 'Completed Workflows' :
                activeView === 'analytics' ? 'Workflow Analytics' : 'System Settings'}
             </h2>
             <p className="text-slate-400 text-sm">
               {activeView === 'dashboard' ? 'Manage and discover your AEC automation pipeline.' : 
+               activeView === 'completed' ? 'Showcase of your automated AEC workflows and proofs.' :
                activeView === 'analytics' ? 'Deep dive into your automation data.' : 'Configure your AI preferences.'}
             </p>
           </div>
@@ -372,7 +406,7 @@ export default function Dashboard() {
               />
             </div>
             <div className="space-y-6">
-              <AIAdvisor />
+              <AIAdvisor externalTrigger={automationTrigger} />
               <div className="glass-panel p-6 bg-gradient-to-br from-aec-card to-aec-bg">
                 <h3 className="font-semibold text-slate-100 mb-4 flex items-center gap-2">
                   <Compass className="w-4 h-4 text-aec-accent" />
@@ -395,6 +429,12 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeView === 'completed' && (
+          <div className="max-w-6xl mx-auto">
+            <CompletedWorkflows workflows={workflows} />
           </div>
         )}
 
@@ -501,13 +541,31 @@ export default function Dashboard() {
                 <div className="pt-6 border-t border-aec-border">
                   <button 
                     onClick={() => {
-                      // In a real app, this would trigger the AI Advisor with context
-                      setSelectedWorkflow(null);
+                      if (selectedWorkflow) {
+                        setAutomationTrigger({
+                          workflow: selectedWorkflow,
+                          timestamp: Date.now()
+                        });
+                        setSelectedWorkflow(null);
+                        // Scroll to AI Advisor
+                        const advisor = document.getElementById('ai-advisor');
+                        if (advisor) {
+                          advisor.scrollIntoView({ behavior: 'smooth' });
+                        }
+                      }
                     }}
-                    className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2"
+                    className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2 mb-3"
                   >
                     <Sparkles className="w-5 h-5" />
                     Generate Automation Plan
+                  </button>
+                  <button 
+                    onClick={() => markAsCompleted(selectedWorkflow.id)}
+                    disabled={isUpdatingStatus}
+                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-aec-border"
+                  >
+                    <CheckCircle2 className="w-5 h-5 text-aec-accent" />
+                    {isUpdatingStatus ? 'Updating...' : 'Mark as Completed'}
                   </button>
                 </div>
               </div>

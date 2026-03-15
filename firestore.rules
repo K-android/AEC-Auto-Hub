@@ -21,6 +21,9 @@ service cloud.firestore {
     //   - successMetrics: string
     //   - userId: string (required, owner)
     //   - createdAt: string
+    //   - status: string (Pending, In Progress, Completed)
+    //   - proofUrl: string
+    //   - proofType: string (image, video)
     //
     // Collection: automationIdeas
     // Document ID: auto-generated
@@ -61,7 +64,10 @@ service cloud.firestore {
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.category in ['Architecture', 'BIM', 'Structural', 'MEP', 'Construction'] &&
              data.description is string && data.description.size() < 2000 &&
-             data.userId == request.auth.uid;
+             data.userId == request.auth.uid &&
+             (!('status' in data) || data.status in ['Pending', 'In Progress', 'Completed']) &&
+             (!('proofUrl' in data) || data.proofUrl is string) &&
+             (!('proofType' in data) || data.proofType in ['image', 'video']);
     }
 
     function isValidAutomationIdea(data) {

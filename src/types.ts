@@ -14,6 +14,9 @@ export interface Workflow {
   userId: string;
   createdAt?: string;
   isAIDiscovery?: boolean;
+  status?: 'Pending' | 'In Progress' | 'Completed';
+  proofUrl?: string;
+  proofType?: 'image' | 'video';
 }
 
 export interface AutomationIdea {

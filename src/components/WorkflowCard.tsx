@@ -1,6 +1,6 @@
 import React from 'react';
 import { Workflow } from '../types';
-import { Zap, Clock, Wrench, BarChart3, ChevronRight, Sparkles } from 'lucide-react';
+import { Zap, Clock, Wrench, BarChart3, ChevronRight, Sparkles, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
@@ -52,6 +52,12 @@ export default function WorkflowCard({ workflow, onClick }: Props) {
               "bg-slate-800 text-slate-400 border-aec-border"
             )}>
               {workflow.priority}
+            </span>
+          )}
+          {workflow.status === 'Completed' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1">
+              <CheckCircle2 className="w-2 h-2" />
+              Completed
             </span>
           )}
         </div>

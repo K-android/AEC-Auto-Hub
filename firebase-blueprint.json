@@ -18,7 +18,10 @@
         "estimatedEffort": { "type": "string" },
         "successMetrics": { "type": "string" },
         "userId": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Pending", "In Progress", "Completed"] },
+        "proofUrl": { "type": "string" },
+        "proofType": { "type": "string", "enum": ["image", "video"] }
       },
       "required": ["title", "category", "description", "userId"]
     },
