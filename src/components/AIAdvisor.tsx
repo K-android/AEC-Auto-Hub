@@ -24,6 +24,7 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
   const [lastSuggestedWorkflow, setLastSuggestedWorkflow] = useState<Partial<Workflow> | null>(null);
   const [copied, setCopied] = useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+  const lastProcessedTrigger = React.useRef<number | null>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -49,9 +50,13 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
   };
 
   useEffect(() => {
-    if (externalTrigger) {
+    if (externalTrigger && externalTrigger.timestamp !== lastProcessedTrigger.current) {
+      lastProcessedTrigger.current = externalTrigger.timestamp;
       const { workflow } = externalTrigger;
-      const prompt = `PLAN_REQUEST: Generate a structured automation plan for the following AEC workflow:
+      // Clear previous messages for a fresh plan
+      setMessages([]);
+      
+      const prompt = `PLAN_REQUEST: Generate a COMPREHENSIVE and HIGHLY STRUCTURED automation plan for the following AEC workflow:
       Title: ${workflow.title}
       Category: ${workflow.category}
       Description: ${workflow.description}
@@ -60,12 +65,36 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
       
       CRITICAL: You MUST prioritize using the tools listed in the Tech Stack for this plan.
       
-      Structure your response as follows:
-      1. **Executive Summary**: Brief overview of the automation goal.
-      2. **Technical Architecture**: How the listed tools (${workflow.tools.join(', ')}) will interact.
-      3. **Step-by-Step Implementation**: Detailed phases from setup to deployment.
-      4. **Code Snippets/Logic**: Provide pseudocode or specific API examples for ${workflow.tools[0] || 'the primary tool'}.
-      5. **Roadblocks & Mitigation**: Potential AEC-specific challenges.`;
+      Use the following EXACT Markdown structure:
+      # 🚀 Automation Strategy: ${workflow.title}
+      
+      ## 📊 Overview
+      - **Goal**: [One sentence goal]
+      - **Primary Tools**: ${workflow.tools.join(', ')}
+      - **Complexity**: ${workflow.complexity}
+      
+      ## 🏗️ Technical Architecture
+      [Describe how the tools connect and the data flow.]
+      
+      ## 🛠️ Implementation Roadmap
+      ### Phase 1: Setup & Configuration
+      - [Step 1]
+      - [Step 2]
+      
+      ### Phase 2: Development & Logic
+      - [Step 1]
+      - [Step 2]
+      
+      ### Phase 3: Validation & Deployment
+      - [Step 1]
+      - [Step 2]
+      
+      ## 💻 Code Snippets & Logic
+      [Provide a high-quality, commented code snippet or logic flow using the primary tools.]
+      
+      ## ⚠️ Roadblocks & Mitigation
+      - **Challenge**: [Challenge description]
+      - **Solution**: [Mitigation strategy]`;
       
       handleSend(prompt);
     }
@@ -78,12 +107,15 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
     const userMessage = messageToSend;
     if (!overrideInput) setInput('');
     
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    const isPlanRequest = userMessage.startsWith('PLAN_REQUEST:');
+    if (!isPlanRequest) {
+      setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    }
+    
     setIsLoading(true);
     setLastSuggestedWorkflow(null);
 
     try {
-      const isPlanRequest = userMessage.startsWith('PLAN_REQUEST:');
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: [
@@ -234,34 +266,39 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
               <div className="markdown-body">
                 <Markdown
                   components={{
-                    h1: ({ children }) => <h1 className="text-lg font-bold text-aec-accent mb-4 mt-2 flex items-center gap-2 border-b border-aec-border pb-2">{children}</h1>,
+                    h1: ({ children }) => <h1 className="text-xl font-black text-white mb-6 mt-2 flex items-center gap-3 bg-aec-accent/10 p-4 rounded-xl border border-aec-accent/20 shadow-lg shadow-aec-accent/5">{children}</h1>,
                     h2: ({ children }) => {
                       const text = String(children).toLowerCase();
                       let Icon = FileText;
+                      if (text.includes('overview') || text.includes('strategy')) Icon = Sparkles;
                       if (text.includes('architecture')) Icon = Layers;
-                      if (text.includes('step') || text.includes('implementation')) Icon = ListChecks;
+                      if (text.includes('roadmap') || text.includes('implementation')) Icon = ListChecks;
                       if (text.includes('code') || text.includes('logic')) Icon = Code2;
                       if (text.includes('roadblock') || text.includes('mitigation')) Icon = AlertTriangle;
                       
                       return (
-                        <h2 className="text-md font-bold text-slate-100 mb-3 mt-6 flex items-center gap-2">
-                          <div className="p-1.5 bg-slate-700/50 rounded-lg border border-aec-border">
-                            <Icon className="w-4 h-4 text-aec-accent" />
+                        <h2 className="text-[11px] font-black text-slate-100 mb-4 mt-10 flex items-center gap-3 uppercase tracking-[0.2em] border-b border-aec-border/50 pb-2">
+                          <div className="p-1.5 bg-aec-accent/10 rounded-lg border border-aec-accent/20">
+                            <Icon className="w-3.5 h-3.5 text-aec-accent" />
                           </div>
                           {children}
                         </h2>
                       );
                     },
-                    p: ({ children }) => <p className="text-slate-300 mb-4 leading-relaxed">{children}</p>,
-                    ul: ({ children }) => <ul className="space-y-2 mb-4 ml-4">{children}</ul>,
+                    h3: ({ children }) => <h3 className="text-[10px] font-black text-aec-accent mb-4 mt-8 uppercase tracking-widest flex items-center gap-2 bg-aec-accent/5 py-1 px-3 rounded-md border border-aec-accent/10 w-fit">
+                      {children}
+                    </h3>,
+                    p: ({ children }) => <p className="text-slate-300 mb-5 leading-relaxed text-sm font-medium">{children}</p>,
+                    ul: ({ children }) => <ul className="space-y-4 mb-8 ml-1">{children}</ul>,
                     li: ({ children }) => (
-                      <li className="flex gap-2 text-slate-300">
-                        <span className="text-aec-accent mt-1.5 shrink-0 w-1.5 h-1.5 rounded-full bg-aec-accent" />
-                        <span>{children}</span>
+                      <li className="flex gap-4 text-slate-300 text-sm group/li items-start">
+                        <div className="mt-2 shrink-0 w-1.5 h-1.5 rounded-full bg-slate-700 group-hover/li:bg-aec-accent transition-all duration-300 shadow-[0_0_8px_rgba(16,185,129,0)] group-hover/li:shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                        <span className="leading-relaxed">{children}</span>
                       </li>
                     ),
+                    strong: ({ children }) => <strong className="text-aec-accent font-bold">{children}</strong>,
                     code: ({ children }) => (
-                      <code className="bg-slate-950 px-1.5 py-0.5 rounded text-aec-accent font-mono text-[11px] border border-aec-border/50">
+                      <code className="bg-slate-950 px-2 py-0.5 rounded text-emerald-400 font-mono text-[11px] border border-aec-border/50">
                         {children}
                       </code>
                     ),
@@ -289,20 +326,23 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
                 </Markdown>
               </div>
 
-              {msg.role === 'assistant' && msg.content.includes('Executive Summary') && (
-                <div className="mt-6 pt-4 border-t border-aec-border flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500 font-mono uppercase tracking-widest">Technical Document</span>
+              {msg.role === 'assistant' && (msg.content.includes('Automation Strategy') || msg.content.includes('Executive Summary')) && (
+                <div className="mt-8 pt-6 border-t border-aec-border flex items-center justify-between bg-slate-900/30 -mx-4 -mb-4 p-4 rounded-b-2xl">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-aec-accent animate-pulse" />
+                    <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">AEC Technical Doc</span>
+                  </div>
                   <div className="flex gap-2">
                     <button 
                       onClick={() => copyToClipboard(msg.content)}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold transition-all border border-aec-border"
+                      className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border border-aec-border shadow-sm"
                     >
                       {copied ? <Check className="w-3 h-3 text-aec-accent" /> : <Copy className="w-3 h-3" />}
                       {copied ? 'Copied' : 'Copy Plan'}
                     </button>
                     <button 
                       onClick={() => downloadPlanAsPDF(msg.content, externalTrigger?.workflow.title || 'AEC')}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-aec-accent/10 hover:bg-aec-accent/20 text-aec-accent rounded-lg text-[10px] font-bold transition-all border border-aec-accent/20"
+                      className="flex items-center gap-2 px-4 py-2 bg-aec-accent text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg shadow-aec-accent/20 hover:bg-emerald-600"
                     >
                       <Download className="w-3 h-3" />
                       Export PDF
@@ -331,12 +371,13 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
           </div>
         ))}
         {isLoading && (
-          <div className="flex gap-3 mr-auto">
+          <div className="flex gap-3 mr-auto animate-pulse">
             <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center">
               <Loader2 className="w-4 h-4 text-aec-accent animate-spin" />
             </div>
-            <div className="p-3 rounded-2xl bg-slate-800 text-slate-400 text-sm italic">
-              Analyzing workflow...
+            <div className="p-4 rounded-2xl bg-slate-800 text-slate-400 text-xs font-black uppercase tracking-widest flex items-center gap-3 border border-aec-border">
+              <Sparkles className="w-3 h-3 text-aec-accent animate-bounce" />
+              Architecting Solution...
             </div>
           </div>
         )}

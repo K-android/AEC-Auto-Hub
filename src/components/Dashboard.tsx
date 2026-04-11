@@ -56,7 +56,11 @@ import {
   Lock,
   BookCheck,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  FileCode,
+  FileJson,
+  Link as LinkIcon,
+  Maximize2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -87,7 +91,12 @@ export default function Dashboard() {
   const [noteType, setNoteType] = useState<'note' | 'proof'>('note');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSavingProof, setIsSavingProof] = useState(false);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [expandedContributionId, setExpandedContributionId] = useState<string | null>(null);
+  const [newResource, setNewResource] = useState({ name: '', url: '', type: 'script' as any });
+  const [isAddingResource, setIsAddingResource] = useState(false);
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -345,6 +354,25 @@ export default function Dashboard() {
     }
   };
 
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (activeModalTab !== 'community' || !selectedWorkflow) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) handleFileSelect(file);
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [activeModalTab, selectedWorkflow]);
+
   const handleAddComment = async () => {
     if (!selectedWorkflow || !commentText.trim() || !auth.currentUser) return;
     setIsSubmittingFeedback(true);
@@ -374,6 +402,7 @@ export default function Dashboard() {
   const handleAddContribution = async () => {
     if (!selectedWorkflow || !noteText.trim() || !auth.currentUser) return;
     setIsSubmittingFeedback(true);
+    setIsSavingProof(true);
     try {
       const newContribution: Contribution = {
         id: Date.now().toString(),
@@ -394,26 +423,106 @@ export default function Dashboard() {
       setProofPreview(null);
     } catch (error) {
       console.error("Failed to add contribution:", error);
+      alert("Failed to save contribution. If using an image, it might be too large (max 500KB).");
     } finally {
       setIsSubmittingFeedback(false);
+      setIsSavingProof(false);
     }
   };
 
-  const handleFileSelect = (file: File) => {
+  const handleAddResource = async () => {
+    if (!selectedWorkflow || !newResource.name.trim() || !newResource.url.trim()) return;
+
+    try {
+      const workflowRef = doc(db, 'workflows', selectedWorkflow.id);
+      const resource = {
+        id: Date.now().toString(),
+        name: newResource.name.trim(),
+        url: newResource.url.trim(),
+        type: newResource.type
+      };
+
+      const updatedResources = [...(selectedWorkflow.resources || []), resource];
+      await updateDoc(workflowRef, {
+        resources: updatedResources
+      });
+
+      setSelectedWorkflow({ ...selectedWorkflow, resources: updatedResources });
+      setNewResource({ name: '', url: '', type: 'script' });
+      setIsAddingResource(false);
+    } catch (error) {
+      console.error("Error adding resource:", error);
+    }
+  };
+
+  const handleRemoveResource = async (resourceId: string) => {
+    if (!selectedWorkflow) return;
+
+    try {
+      const workflowRef = doc(db, 'workflows', selectedWorkflow.id);
+      const updatedResources = (selectedWorkflow.resources || []).filter(r => r.id !== resourceId);
+      
+      await updateDoc(workflowRef, {
+        resources: updatedResources
+      });
+
+      setSelectedWorkflow({ ...selectedWorkflow, resources: updatedResources });
+    } catch (error) {
+      console.error("Error removing resource:", error);
+    }
+  };
+
+  const compressImage = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith('image/') && !file.type.includes('gif')) {
       alert("Please upload an image or GIF.");
       return;
     }
     
-    // Limit size to 500KB for Firestore data URL storage
-    if (file.size > 512000) {
-      alert("File too large. Please keep it under 500KB.");
-      return;
-    }
-
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setProofPreview(e.target?.result as string);
+    reader.onload = async (e) => {
+      const rawDataUrl = e.target?.result as string;
+      if (file.type.includes('gif')) {
+        if (file.size > 800000) {
+          alert("GIF too large. Please keep it under 800KB.");
+          return;
+        }
+        setProofPreview(rawDataUrl);
+      } else {
+        const compressedDataUrl = await compressImage(rawDataUrl);
+        setProofPreview(compressedDataUrl);
+      }
       setNoteType('proof');
     };
     reader.readAsDataURL(file);
@@ -529,6 +638,38 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-aec-bg">
+      {/* Zoom Modal */}
+      <AnimatePresence>
+        {zoomedImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl"
+            onClick={() => setZoomedImage(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-5xl w-full max-h-[90vh] flex items-center justify-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <img 
+                src={zoomedImage} 
+                alt="Zoomed Proof" 
+                className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+              <button 
+                onClick={() => setZoomedImage(null)}
+                className="absolute -top-4 -right-4 p-3 bg-white text-slate-950 rounded-full shadow-2xl hover:scale-110 transition-transform"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Sidebar - Desktop */}
       <aside className="hidden md:flex flex-col w-64 border-r border-aec-border p-6 bg-aec-card/30">
         <div className="flex items-center gap-3 mb-10">
@@ -966,6 +1107,7 @@ export default function Dashboard() {
                     onClick={() => {
                       setSelectedWorkflow(null);
                       setActiveModalTab('details');
+                      setAutomationTrigger(null);
                     }}
                     className="p-2 hover:bg-slate-800 rounded-full transition-colors"
                   >
@@ -1038,6 +1180,102 @@ export default function Dashboard() {
                           <div className="text-[10px] uppercase text-slate-500 font-bold">Success</div>
                           <div className="text-xs font-semibold text-slate-200 truncate max-w-[100px]">{selectedWorkflow.successMetrics || 'N/A'}</div>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Resources Display in Modal */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Attached Resources & Scripts</h5>
+                        {selectedWorkflow.userId === auth.currentUser?.uid && (
+                          <button 
+                            onClick={() => setIsAddingResource(!isAddingResource)}
+                            className="p-1 hover:bg-aec-accent/10 text-aec-accent rounded-md transition-colors"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+
+                      {isAddingResource && (
+                        <div className="p-4 rounded-xl bg-slate-900 border border-aec-accent/20 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <input 
+                            type="text" 
+                            placeholder="Resource Name (e.g. Dynamo Script)"
+                            value={newResource.name}
+                            onChange={e => setNewResource({...newResource, name: e.target.value})}
+                            className="w-full bg-slate-950 border border-aec-border rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-aec-accent"
+                          />
+                          <input 
+                            type="text" 
+                            placeholder="Drive/GitHub URL"
+                            value={newResource.url}
+                            onChange={e => setNewResource({...newResource, url: e.target.value})}
+                            className="w-full bg-slate-950 border border-aec-border rounded-lg px-3 py-2 text-xs text-slate-200 outline-none focus:border-aec-accent"
+                          />
+                          <div className="flex gap-3">
+                            <select 
+                              value={newResource.type}
+                              onChange={e => setNewResource({...newResource, type: e.target.value as any})}
+                              className="flex-1 bg-slate-950 border border-aec-border rounded-lg px-3 py-2 text-xs text-slate-400 outline-none"
+                            >
+                              <option value="dynamo">Dynamo (.dyn)</option>
+                              <option value="python">Python (.py)</option>
+                              <option value="script">Script/Code</option>
+                              <option value="other">Other Link</option>
+                            </select>
+                            <button 
+                              onClick={handleAddResource}
+                              className="px-4 py-2 bg-aec-accent text-white rounded-lg text-xs font-bold"
+                            >
+                              Add Resource
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {selectedWorkflow.resources?.map(resource => (
+                          <div 
+                            key={resource.id}
+                            className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-aec-border hover:border-aec-accent/50 transition-all group/res"
+                          >
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="p-2 bg-slate-800 rounded-lg">
+                                {resource.type === 'dynamo' ? <FileJson className="w-4 h-4 text-blue-400" /> : 
+                                 resource.type === 'python' ? <FileCode className="w-4 h-4 text-emerald-400" /> : 
+                                 <LinkIcon className="w-4 h-4 text-slate-500" />}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-slate-200 truncate">{resource.name}</div>
+                                <div className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{resource.type}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <a 
+                                href={resource.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 hover:bg-aec-accent/20 text-aec-accent rounded-lg transition-colors"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                              {selectedWorkflow.userId === auth.currentUser?.uid && (
+                                <button 
+                                  onClick={() => handleRemoveResource(resource.id)}
+                                  className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors opacity-0 group-hover/res:opacity-100"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {(!selectedWorkflow.resources || selectedWorkflow.resources.length === 0) && !isAddingResource && (
+                          <div className="col-span-full py-4 text-center border border-dashed border-aec-border rounded-xl">
+                            <p className="text-xs text-slate-500 italic">No resources attached yet.</p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1143,13 +1381,39 @@ export default function Dashboard() {
                               </div>
                               <p className="text-sm text-slate-400 mb-3">{contribution.text}</p>
                               {contribution.url && (
-                                <div className="mb-3 rounded-lg overflow-hidden border border-aec-border bg-black/20">
+                                <div 
+                                  className={cn(
+                                    "mb-3 rounded-lg overflow-hidden border border-aec-border bg-black/20 relative group/proof cursor-pointer transition-all duration-500",
+                                    expandedContributionId === contribution.id ? "max-h-[600px]" : "max-h-64"
+                                  )}
+                                  onClick={() => setZoomedImage(contribution.url || null)}
+                                >
                                   <img 
                                     src={contribution.url} 
                                     alt="Proof" 
-                                    className="max-h-64 w-full object-contain"
+                                    className={cn(
+                                      "w-full transition-all duration-500",
+                                      expandedContributionId === contribution.id ? "object-contain h-full" : "object-contain max-h-64 group-hover/proof:scale-105"
+                                    )}
                                     referrerPolicy="no-referrer"
                                   />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover/proof:opacity-100 transition-opacity">
+                                    <div className="flex gap-2">
+                                      <button 
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setExpandedContributionId(expandedContributionId === contribution.id ? null : contribution.id);
+                                        }}
+                                        className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20 hover:bg-aec-accent transition-colors"
+                                        title={expandedContributionId === contribution.id ? "Collapse" : "Expand"}
+                                      >
+                                        <Maximize2 className="w-4 h-4 text-white" />
+                                      </button>
+                                      <div className="p-2 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+                                        <Sparkles className="w-4 h-4 text-white" />
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                               <div className="text-[10px] text-slate-600 mt-2">
@@ -1202,11 +1466,14 @@ export default function Dashboard() {
 
                         {noteType === 'proof' && !proofPreview && (
                           <div 
-                            className="mb-3 p-6 border-2 border-dashed border-aec-border rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                            className="mb-4 p-10 border-2 border-dashed border-aec-border rounded-xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-aec-accent/5 hover:border-aec-accent/50 transition-all min-h-[200px]"
                             onClick={() => document.getElementById('proof-upload')?.click()}
                           >
-                            <ImageIcon className="w-8 h-8 text-slate-500" />
-                            <div className="text-xs text-slate-400 font-medium">Drag & drop proof image/GIF or click to upload</div>
+                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center">
+                              <ImageIcon className="w-6 h-6 text-aec-accent" />
+                            </div>
+                            <div className="text-sm text-slate-300 font-bold">Drop Proof Image Here</div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-widest">or click to browse files</div>
                             <input 
                               id="proof-upload"
                               type="file"
@@ -1225,14 +1492,22 @@ export default function Dashboard() {
                             <img 
                               src={proofPreview} 
                               alt="Preview" 
-                              className="w-full h-40 object-cover rounded-lg border border-aec-border"
+                              className="w-full max-h-[160px] object-cover rounded-lg border border-aec-border shadow-inner"
                             />
-                            <button 
-                              onClick={() => setProofPreview(null)}
-                              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
+                            <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                onClick={() => setZoomedImage(proofPreview)}
+                                className="p-1.5 bg-slate-900/80 text-white rounded-full shadow-lg hover:bg-slate-800 transition-colors backdrop-blur-sm"
+                              >
+                                <Maximize2 className="w-3 h-3" />
+                              </button>
+                              <button 
+                                onClick={() => setProofPreview(null)}
+                                className="p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-colors"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                         )}
 
@@ -1244,10 +1519,11 @@ export default function Dashboard() {
                         />
                         <button 
                           onClick={handleAddContribution}
-                          disabled={isSubmittingFeedback || !noteText.trim() || (noteType === 'proof' && !proofPreview)}
-                          className="mt-3 w-full py-2 bg-aec-accent hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                          disabled={isSubmittingFeedback || isSavingProof || !noteText.trim() || (noteType === 'proof' && !proofPreview)}
+                          className="mt-4 w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-aec-accent/20 disabled:opacity-50 flex items-center justify-center gap-2"
                         >
-                          {isSubmittingFeedback ? 'Submitting...' : 'Submit Contribution'}
+                          {(isSubmittingFeedback || isSavingProof) && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {isSubmittingFeedback || isSavingProof ? 'Submitting...' : 'Post Contribution'}
                         </button>
                       </div>
                     </section>

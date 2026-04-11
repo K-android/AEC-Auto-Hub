@@ -17,6 +17,13 @@ export interface Contribution {
   url?: string;
 }
 
+export interface Resource {
+  id: string;
+  name: string;
+  url: string;
+  type: 'script' | 'dynamo' | 'python' | 'other';
+}
+
 export interface Workflow {
   id: string;
   title: string;
@@ -39,6 +46,7 @@ export interface Workflow {
   proofType?: 'image' | 'video';
   comments?: Comment[];
   contributions?: Contribution[];
+  resources?: Resource[];
 }
 
 export interface AutomationIdea {

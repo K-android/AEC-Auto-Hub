@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Workflow } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle, Globe, Lock, X } from 'lucide-react';
-import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle, Globe, Lock, X, FileCode, Link as LinkIcon, FileJson, Loader2, Maximize2 } from 'lucide-react';
+import { doc, updateDoc, deleteDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
 
@@ -18,40 +18,145 @@ export default function CompletedWorkflows({ workflows }: Props) {
   const [workflowToDelete, setWorkflowToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+  const [expandedProofId, setExpandedProofId] = useState<string | null>(null);
+  const [newResource, setNewResource] = useState({ name: '', url: '', type: 'script' as any });
+  const [isAddingResource, setIsAddingResource] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      if (!editingId) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) handleFileSelect(file);
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [editingId]);
 
   const handleAddProof = async (id: string) => {
-    if (!proofUrl.trim() && !proofPreview) return;
+    const finalProofUrl = proofPreview || proofUrl.trim();
+    if (!finalProofUrl) return;
     
+    setIsSaving(true);
     try {
       const workflowRef = doc(db, 'workflows', id);
       await updateDoc(workflowRef, {
-        proofUrl: proofPreview || proofUrl.trim(),
-        proofType: proofType
+        proofUrl: finalProofUrl,
+        proofType: proofType,
+        updatedAt: new Date().toISOString()
       });
+      
+      setSaveSuccess(id);
+      setTimeout(() => setSaveSuccess(null), 3000);
+      
       setEditingId(null);
       setProofUrl('');
       setProofPreview(null);
     } catch (error) {
       console.error("Error adding proof:", error);
+      alert("Failed to save proof. The image might still be too large for the database. Try a smaller screenshot or a URL.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleFileSelect = (file: File) => {
+  const handleAddResource = async (workflowId: string) => {
+    if (!newResource.name.trim() || !newResource.url.trim()) return;
+
+    try {
+      const workflowRef = doc(db, 'workflows', workflowId);
+      const resource = {
+        id: Date.now().toString(),
+        name: newResource.name.trim(),
+        url: newResource.url.trim(),
+        type: newResource.type
+      };
+
+      await updateDoc(workflowRef, {
+        resources: arrayUnion(resource)
+      });
+
+      setNewResource({ name: '', url: '', type: 'script' });
+      setIsAddingResource(null);
+    } catch (error) {
+      console.error("Error adding resource:", error);
+    }
+  };
+
+  const removeResource = async (workflowId: string, resource: any) => {
+    try {
+      const workflowRef = doc(db, 'workflows', workflowId);
+      await updateDoc(workflowRef, {
+        resources: arrayRemove(resource)
+      });
+    } catch (error) {
+      console.error("Error removing resource:", error);
+    }
+  };
+
+  const compressImage = (dataUrl: string): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = dataUrl;
+    });
+  };
+
+  const handleFileSelect = async (file: File) => {
     if (!file.type.startsWith('image/') && !file.type.includes('gif')) {
       alert("Please upload an image or GIF.");
       return;
     }
     
-    // Limit size to 500KB for Firestore data URL storage
-    if (file.size > 512000) {
-      alert("File too large. Please keep it under 500KB.");
-      return;
-    }
-
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setProofPreview(e.target?.result as string);
+    reader.onload = async (e) => {
+      const rawDataUrl = e.target?.result as string;
+      if (file.type.includes('gif')) {
+        if (file.size > 800000) {
+          alert("GIF too large. Please keep it under 800KB.");
+          return;
+        }
+        setProofPreview(rawDataUrl);
+      } else {
+        const compressedDataUrl = await compressImage(rawDataUrl);
+        setProofPreview(compressedDataUrl);
+      }
       setProofType('image');
     };
     reader.readAsDataURL(file);
@@ -106,6 +211,39 @@ export default function CompletedWorkflows({ workflows }: Props) {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Zoom Modal */}
+      <AnimatePresence>
+        {zoomedImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl"
+            onClick={() => setZoomedImage(null)}
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="relative max-w-5xl w-full max-h-[90vh] flex items-center justify-center"
+              onClick={e => e.stopPropagation()}
+            >
+              <img 
+                src={zoomedImage} 
+                alt="Zoomed Proof" 
+                className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+              <button 
+                onClick={() => setZoomedImage(null)}
+                className="absolute -top-4 -right-4 p-3 bg-white text-slate-950 rounded-full shadow-2xl hover:scale-110 transition-transform"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
@@ -136,16 +274,33 @@ export default function CompletedWorkflows({ workflows }: Props) {
               className="glass-panel overflow-hidden flex flex-col group"
             >
               {/* Proof Preview */}
-              <div className="aspect-video bg-slate-900 relative overflow-hidden group-hover:bg-slate-800 transition-all duration-500">
+              <div className={cn(
+                "bg-slate-900 relative overflow-hidden group-hover:bg-slate-800 transition-all duration-500",
+                editingId === workflow.id ? "min-h-[550px]" : 
+                expandedProofId === workflow.id ? "min-h-[500px]" : "aspect-video"
+              )}>
                 {workflow.proofUrl ? (
                   <>
                     {workflow.proofType === 'image' ? (
-                      <img 
-                        src={workflow.proofUrl} 
-                        alt={workflow.title} 
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                        referrerPolicy="no-referrer"
-                      />
+                      <div 
+                        className="relative w-full h-full cursor-pointer group/proof" 
+                        onClick={() => setZoomedImage(workflow.proofUrl || null)}
+                      >
+                        <img 
+                          src={workflow.proofUrl} 
+                          alt={workflow.title} 
+                          className={cn(
+                            "w-full h-full transition-all duration-700",
+                            expandedProofId === workflow.id ? "object-contain" : "object-cover group-hover:scale-110"
+                          )}
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover/proof:opacity-100 transition-opacity">
+                          <div className="p-3 bg-white/10 backdrop-blur-md rounded-full border border-white/20">
+                            <Maximize2 className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center bg-aec-accent/5">
                         <Video className="w-12 h-12 text-aec-accent opacity-50" />
@@ -161,20 +316,39 @@ export default function CompletedWorkflows({ workflows }: Props) {
                         </div>
                       </div>
                     )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    <button 
-                      onClick={() => removeProof(workflow.id)}
-                      className="absolute top-3 right-3 p-2 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all opacity-0 group-hover:opacity-100 backdrop-blur-md border border-red-500/20"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                    
+                    <div className="absolute top-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                      {workflow.proofType === 'image' && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedProofId(expandedProofId === workflow.id ? null : workflow.id);
+                          }}
+                          className="p-2 bg-slate-900/80 hover:bg-aec-accent text-white rounded-xl transition-all backdrop-blur-md border border-white/10"
+                          title={expandedProofId === workflow.id ? "Collapse" : "Expand View"}
+                        >
+                          <Maximize2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeProof(workflow.id);
+                        }}
+                        className="p-2 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all backdrop-blur-md border border-red-500/20"
+                        title="Remove Proof"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-slate-900 to-aec-bg">
+                  <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-slate-900 to-aec-bg">
                     {editingId === workflow.id ? (
                       <div 
                         className={cn(
-                          "w-full space-y-4 animate-in fade-in zoom-in-95 duration-300 p-4 rounded-xl transition-all",
+                          "w-full space-y-4 animate-in fade-in zoom-in-95 duration-300 p-2 rounded-xl transition-all",
                           isDragging ? "bg-aec-accent/10 border-2 border-dashed border-aec-accent" : ""
                         )}
                         onDragOver={(e) => {
@@ -219,28 +393,44 @@ export default function CompletedWorkflows({ workflows }: Props) {
                         {proofType === 'image' && (
                           <div 
                             className={cn(
-                              "relative border-2 border-dashed border-aec-border rounded-xl flex flex-col items-center justify-center transition-all overflow-hidden",
-                              proofPreview ? "aspect-video" : "py-8 px-4 cursor-pointer hover:bg-slate-800/50"
+                              "relative border-2 border-dashed border-aec-border rounded-xl flex flex-col items-center justify-center transition-all overflow-hidden bg-slate-900/50",
+                              proofPreview ? "h-[180px] w-full" : "h-[200px] w-full cursor-pointer hover:bg-aec-accent/5 hover:border-aec-accent/50"
                             )}
                             onClick={() => !proofPreview && document.getElementById(`proof-upload-${workflow.id}`)?.click()}
                           >
                             {proofPreview ? (
                               <>
                                 <img src={proofPreview} alt="Preview" className="w-full h-full object-cover" />
-                                <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setProofPreview(null);
-                                  }}
-                                  className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-lg"
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
+                                <div className="absolute top-2 right-2 flex gap-2">
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setZoomedImage(proofPreview);
+                                    }}
+                                    className="p-1.5 bg-slate-900/80 text-white rounded-full shadow-lg hover:bg-slate-800 transition-colors"
+                                    title="Zoom"
+                                  >
+                                    <Maximize2 className="w-3 h-3" />
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setProofPreview(null);
+                                    }}
+                                    className="p-1.5 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition-colors"
+                                    title="Remove"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </>
                             ) : (
                               <>
-                                <ImageIcon className="w-8 h-8 text-slate-500 mb-2" />
-                                <div className="text-[10px] text-slate-400 font-medium text-center">Drag & drop image/GIF or click to upload</div>
+                                <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-2">
+                                  <ImageIcon className="w-6 h-6 text-aec-accent" />
+                                </div>
+                                <div className="text-sm text-slate-300 font-bold">Drop Proof Image</div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">or click to browse</div>
                                 <input 
                                   id={`proof-upload-${workflow.id}`}
                                   type="file"
@@ -268,23 +458,27 @@ export default function CompletedWorkflows({ workflows }: Props) {
                             className="w-full bg-slate-950/50 border border-aec-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-aec-accent/50 transition-all"
                           />
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-3 pt-2">
                           <button 
                             onClick={() => {
                               setEditingId(null);
                               setProofUrl('');
                               setProofPreview(null);
                             }}
-                            className="flex-1 py-2.5 text-sm font-bold text-slate-400 hover:text-slate-200 transition-colors"
+                            className="flex-1 py-2.5 text-sm font-bold text-slate-400 hover:text-slate-200 transition-colors bg-slate-900/50 rounded-xl border border-aec-border hover:border-slate-700"
                           >
                             Cancel
                           </button>
                           <button 
                             onClick={() => handleAddProof(workflow.id)}
-                            disabled={!proofUrl.trim() && !proofPreview}
-                            className="flex-1 py-2.5 text-sm bg-aec-accent text-white rounded-xl font-bold shadow-lg shadow-aec-accent/20 hover:bg-emerald-600 transition-all disabled:opacity-50"
+                            disabled={isSaving || (!proofUrl.trim() && !proofPreview)}
+                            className={cn(
+                              "flex-1 py-3 text-sm bg-aec-accent text-white rounded-xl font-bold shadow-lg shadow-aec-accent/20 hover:bg-emerald-600 transition-all disabled:opacity-50 flex items-center justify-center gap-2",
+                              proofPreview && !isSaving ? "animate-pulse ring-2 ring-aec-accent/50" : ""
+                            )}
                           >
-                            Add Proof
+                            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                            {isSaving ? 'Saving...' : 'Confirm & Save Proof'}
                           </button>
                         </div>
                       </div>
@@ -309,7 +503,22 @@ export default function CompletedWorkflows({ workflows }: Props) {
               </div>
 
               {/* Content */}
-              <div className="p-6 flex-1 flex flex-col bg-gradient-to-b from-aec-card/50 to-aec-bg">
+              <div className="p-6 flex-1 flex flex-col bg-gradient-to-b from-aec-card/50 to-aec-bg relative">
+                {saveSuccess === workflow.id && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/90 backdrop-blur-md rounded-2xl border border-aec-accent/30"
+                  >
+                    <div className="text-center">
+                      <div className="w-16 h-16 bg-aec-accent/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <CheckCircle2 className="w-8 h-8 text-aec-accent" />
+                      </div>
+                      <h4 className="text-lg font-bold text-white mb-1">Proof Saved!</h4>
+                      <p className="text-xs text-slate-400">Your automation is now verified.</p>
+                    </div>
+                  </motion.div>
+                )}
                 <div className="flex items-center justify-between mb-4">
                   <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-aec-accent/10 text-aec-accent border border-aec-accent/20">
                     {workflow.category}
@@ -326,6 +535,88 @@ export default function CompletedWorkflows({ workflows }: Props) {
                 <p className="text-sm text-slate-400 leading-relaxed line-clamp-3 mb-6">
                   {workflow.description}
                 </p>
+
+                {/* Resources Section */}
+                <div className="mb-6 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Resources & Scripts</h5>
+                    <button 
+                      onClick={() => setIsAddingResource(isAddingResource === workflow.id ? null : workflow.id)}
+                      className="p-1 hover:bg-aec-accent/10 text-aec-accent rounded-md transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  {isAddingResource === workflow.id && (
+                    <div className="p-3 rounded-lg bg-slate-900 border border-aec-accent/20 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <input 
+                        type="text" 
+                        placeholder="Resource Name (e.g. Dynamo Script)"
+                        value={newResource.name}
+                        onChange={e => setNewResource({...newResource, name: e.target.value})}
+                        className="w-full bg-slate-950 border border-aec-border rounded-md px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-aec-accent"
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="Drive/GitHub URL"
+                        value={newResource.url}
+                        onChange={e => setNewResource({...newResource, url: e.target.value})}
+                        className="w-full bg-slate-950 border border-aec-border rounded-md px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-aec-accent"
+                      />
+                      <div className="flex gap-2">
+                        <select 
+                          value={newResource.type}
+                          onChange={e => setNewResource({...newResource, type: e.target.value as any})}
+                          className="flex-1 bg-slate-950 border border-aec-border rounded-md px-2 py-1 text-[10px] text-slate-400 outline-none"
+                        >
+                          <option value="dynamo">Dynamo (.dyn)</option>
+                          <option value="python">Python (.py)</option>
+                          <option value="script">Script/Code</option>
+                          <option value="other">Other Link</option>
+                        </select>
+                        <button 
+                          onClick={() => handleAddResource(workflow.id)}
+                          className="px-3 py-1 bg-aec-accent text-white rounded-md text-[10px] font-bold"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {workflow.resources?.map(resource => (
+                      <div key={resource.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-900/50 border border-aec-border group/res">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                          {resource.type === 'dynamo' ? <FileJson className="w-3.5 h-3.5 text-blue-400" /> : 
+                           resource.type === 'python' ? <FileCode className="w-3.5 h-3.5 text-emerald-400" /> : 
+                           <LinkIcon className="w-3.5 h-3.5 text-slate-500" />}
+                          <span className="text-[11px] text-slate-300 truncate font-medium">{resource.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover/res:opacity-100 transition-opacity">
+                          <a 
+                            href={resource.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-1 hover:bg-aec-accent/20 text-aec-accent rounded"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                          <button 
+                            onClick={() => removeResource(workflow.id, resource)}
+                            className="p-1 hover:bg-red-500/20 text-red-400 rounded"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {(!workflow.resources || workflow.resources.length === 0) && !isAddingResource && (
+                      <p className="text-[10px] text-slate-600 italic">No resources attached yet.</p>
+                    )}
+                  </div>
+                </div>
 
                 <div className="mt-auto pt-6 border-t border-aec-border/50 flex items-center justify-between">
                   <div className="flex items-center gap-2">
