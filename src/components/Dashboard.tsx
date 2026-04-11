@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Workflow } from '../types';
+import { Workflow, Contribution } from '../types';
 import WorkflowCard from './WorkflowCard';
 import AIAdvisor from './AIAdvisor';
 import WorkflowDiscovery from './WorkflowDiscovery';
@@ -86,6 +86,8 @@ export default function Dashboard() {
   const [noteText, setNoteText] = useState('');
   const [noteType, setNoteType] = useState<'note' | 'proof'>('note');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -373,13 +375,14 @@ export default function Dashboard() {
     if (!selectedWorkflow || !noteText.trim() || !auth.currentUser) return;
     setIsSubmittingFeedback(true);
     try {
-      const newContribution = {
+      const newContribution: Contribution = {
         id: Date.now().toString(),
         userId: auth.currentUser.uid,
         userName: auth.currentUser.displayName || 'Anonymous',
         text: noteText,
         type: noteType,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        url: noteType === 'proof' ? proofPreview || undefined : undefined
       };
 
       const workflowRef = doc(db, 'workflows', selectedWorkflow.id);
@@ -388,11 +391,32 @@ export default function Dashboard() {
       await updateDoc(workflowRef, { contributions: updatedContributions });
       setSelectedWorkflow({ ...selectedWorkflow, contributions: updatedContributions });
       setNoteText('');
+      setProofPreview(null);
     } catch (error) {
       console.error("Failed to add contribution:", error);
     } finally {
       setIsSubmittingFeedback(false);
     }
+  };
+
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith('image/') && !file.type.includes('gif')) {
+      alert("Please upload an image or GIF.");
+      return;
+    }
+    
+    // Limit size to 500KB for Firestore data URL storage
+    if (file.size > 512000) {
+      alert("File too large. Please keep it under 500KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setProofPreview(e.target?.result as string);
+      setNoteType('proof');
+    };
+    reader.readAsDataURL(file);
   };
 
   const markAsCompleted = async (id: string) => {
@@ -1117,7 +1141,17 @@ export default function Dashboard() {
                                   {contribution.type}
                                 </span>
                               </div>
-                              <p className="text-sm text-slate-400">{contribution.text}</p>
+                              <p className="text-sm text-slate-400 mb-3">{contribution.text}</p>
+                              {contribution.url && (
+                                <div className="mb-3 rounded-lg overflow-hidden border border-aec-border bg-black/20">
+                                  <img 
+                                    src={contribution.url} 
+                                    alt="Proof" 
+                                    className="max-h-64 w-full object-contain"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </div>
+                              )}
                               <div className="text-[10px] text-slate-600 mt-2">
                                 {new Date(contribution.timestamp).toLocaleDateString()}
                               </div>
@@ -1128,7 +1162,23 @@ export default function Dashboard() {
                         )}
                       </div>
 
-                      <div className="p-4 rounded-xl bg-slate-900/50 border border-aec-border border-dashed">
+                      <div 
+                        className={cn(
+                          "p-4 rounded-xl bg-slate-900/50 border border-aec-border border-dashed transition-all",
+                          isDragging ? "border-aec-accent bg-aec-accent/5" : "hover:border-aec-accent/50"
+                        )}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragging(true);
+                        }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragging(false);
+                          const file = e.dataTransfer.files[0];
+                          if (file) handleFileSelect(file);
+                        }}
+                      >
                         <div className="flex gap-2 mb-3">
                           <button 
                             onClick={() => setNoteType('note')}
@@ -1149,6 +1199,43 @@ export default function Dashboard() {
                             Add Proof
                           </button>
                         </div>
+
+                        {noteType === 'proof' && !proofPreview && (
+                          <div 
+                            className="mb-3 p-6 border-2 border-dashed border-aec-border rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-slate-800/50 transition-colors"
+                            onClick={() => document.getElementById('proof-upload')?.click()}
+                          >
+                            <ImageIcon className="w-8 h-8 text-slate-500" />
+                            <div className="text-xs text-slate-400 font-medium">Drag & drop proof image/GIF or click to upload</div>
+                            <input 
+                              id="proof-upload"
+                              type="file"
+                              className="hidden"
+                              accept="image/*,.gif"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileSelect(file);
+                              }}
+                            />
+                          </div>
+                        )}
+
+                        {proofPreview && (
+                          <div className="relative mb-3 group">
+                            <img 
+                              src={proofPreview} 
+                              alt="Preview" 
+                              className="w-full h-40 object-cover rounded-lg border border-aec-border"
+                            />
+                            <button 
+                              onClick={() => setProofPreview(null)}
+                              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        )}
+
                         <textarea 
                           value={noteText}
                           onChange={e => setNoteText(e.target.value)}
@@ -1157,7 +1244,7 @@ export default function Dashboard() {
                         />
                         <button 
                           onClick={handleAddContribution}
-                          disabled={isSubmittingFeedback || !noteText.trim()}
+                          disabled={isSubmittingFeedback || !noteText.trim() || (noteType === 'proof' && !proofPreview)}
                           className="mt-3 w-full py-2 bg-aec-accent hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                         >
                           {isSubmittingFeedback ? 'Submitting...' : 'Submit Contribution'}

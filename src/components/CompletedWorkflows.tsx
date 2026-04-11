@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Workflow } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle, Globe, Lock } from 'lucide-react';
+import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle, Globe, Lock, X } from 'lucide-react';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
@@ -17,21 +17,44 @@ export default function CompletedWorkflows({ workflows }: Props) {
   const [proofType, setProofType] = useState<'image' | 'video'>('image');
   const [workflowToDelete, setWorkflowToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
 
   const handleAddProof = async (id: string) => {
-    if (!proofUrl.trim()) return;
+    if (!proofUrl.trim() && !proofPreview) return;
     
     try {
       const workflowRef = doc(db, 'workflows', id);
       await updateDoc(workflowRef, {
-        proofUrl: proofUrl.trim(),
+        proofUrl: proofPreview || proofUrl.trim(),
         proofType: proofType
       });
       setEditingId(null);
       setProofUrl('');
+      setProofPreview(null);
     } catch (error) {
       console.error("Error adding proof:", error);
     }
+  };
+
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith('image/') && !file.type.includes('gif')) {
+      alert("Please upload an image or GIF.");
+      return;
+    }
+    
+    // Limit size to 500KB for Firestore data URL storage
+    if (file.size > 512000) {
+      alert("File too large. Please keep it under 500KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setProofPreview(e.target?.result as string);
+      setProofType('image');
+    };
+    reader.readAsDataURL(file);
   };
 
   const removeProof = async (id: string) => {
@@ -149,10 +172,29 @@ export default function CompletedWorkflows({ workflows }: Props) {
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-slate-900 to-aec-bg">
                     {editingId === workflow.id ? (
-                      <div className="w-full space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                      <div 
+                        className={cn(
+                          "w-full space-y-4 animate-in fade-in zoom-in-95 duration-300 p-4 rounded-xl transition-all",
+                          isDragging ? "bg-aec-accent/10 border-2 border-dashed border-aec-accent" : ""
+                        )}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragging(true);
+                        }}
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setIsDragging(false);
+                          const file = e.dataTransfer.files[0];
+                          if (file) handleFileSelect(file);
+                        }}
+                      >
                         <div className="flex gap-2 p-1 bg-slate-800/50 rounded-xl border border-aec-border">
                           <button 
-                            onClick={() => setProofType('image')}
+                            onClick={() => {
+                              setProofType('image');
+                              setProofUrl('');
+                            }}
                             className={cn(
                               "flex-1 py-2 text-xs font-bold rounded-lg transition-all",
                               proofType === 'image' ? "bg-aec-accent text-white shadow-lg shadow-aec-accent/20" : "text-slate-400 hover:text-slate-200"
@@ -161,7 +203,10 @@ export default function CompletedWorkflows({ workflows }: Props) {
                             Image
                           </button>
                           <button 
-                            onClick={() => setProofType('video')}
+                            onClick={() => {
+                              setProofType('video');
+                              setProofPreview(null);
+                            }}
                             className={cn(
                               "flex-1 py-2 text-xs font-bold rounded-lg transition-all",
                               proofType === 'video' ? "bg-aec-accent text-white shadow-lg shadow-aec-accent/20" : "text-slate-400 hover:text-slate-200"
@@ -170,12 +215,56 @@ export default function CompletedWorkflows({ workflows }: Props) {
                             Video
                           </button>
                         </div>
+
+                        {proofType === 'image' && (
+                          <div 
+                            className={cn(
+                              "relative border-2 border-dashed border-aec-border rounded-xl flex flex-col items-center justify-center transition-all overflow-hidden",
+                              proofPreview ? "aspect-video" : "py-8 px-4 cursor-pointer hover:bg-slate-800/50"
+                            )}
+                            onClick={() => !proofPreview && document.getElementById(`proof-upload-${workflow.id}`)?.click()}
+                          >
+                            {proofPreview ? (
+                              <>
+                                <img src={proofPreview} alt="Preview" className="w-full h-full object-cover" />
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setProofPreview(null);
+                                  }}
+                                  className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full shadow-lg"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <ImageIcon className="w-8 h-8 text-slate-500 mb-2" />
+                                <div className="text-[10px] text-slate-400 font-medium text-center">Drag & drop image/GIF or click to upload</div>
+                                <input 
+                                  id={`proof-upload-${workflow.id}`}
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*,.gif"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleFileSelect(file);
+                                  }}
+                                />
+                              </>
+                            )}
+                          </div>
+                        )}
+
                         <div className="relative">
                           <input 
                             type="text" 
-                            placeholder={proofType === 'image' ? "Paste image URL (Unsplash, etc)..." : "Paste video URL (YouTube, Vimeo)..."}
+                            placeholder={proofType === 'image' ? "Or paste image URL..." : "Paste video URL (YouTube, Vimeo)..."}
                             value={proofUrl}
-                            onChange={(e) => setProofUrl(e.target.value)}
+                            onChange={(e) => {
+                              setProofUrl(e.target.value);
+                              if (proofType === 'image') setProofPreview(null);
+                            }}
                             className="w-full bg-slate-950/50 border border-aec-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-aec-accent/50 transition-all"
                           />
                         </div>
@@ -184,6 +273,7 @@ export default function CompletedWorkflows({ workflows }: Props) {
                             onClick={() => {
                               setEditingId(null);
                               setProofUrl('');
+                              setProofPreview(null);
                             }}
                             className="flex-1 py-2.5 text-sm font-bold text-slate-400 hover:text-slate-200 transition-colors"
                           >
@@ -191,7 +281,8 @@ export default function CompletedWorkflows({ workflows }: Props) {
                           </button>
                           <button 
                             onClick={() => handleAddProof(workflow.id)}
-                            className="flex-1 py-2.5 text-sm bg-aec-accent text-white rounded-xl font-bold shadow-lg shadow-aec-accent/20 hover:bg-emerald-600 transition-all"
+                            disabled={!proofUrl.trim() && !proofPreview}
+                            className="flex-1 py-2.5 text-sm bg-aec-accent text-white rounded-xl font-bold shadow-lg shadow-aec-accent/20 hover:bg-emerald-600 transition-all disabled:opacity-50"
                           >
                             Add Proof
                           </button>
