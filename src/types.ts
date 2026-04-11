@@ -1,3 +1,22 @@
+export interface Comment {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string;
+  text: string;
+  timestamp: string;
+}
+
+export interface Contribution {
+  id: string;
+  userId: string;
+  userName: string;
+  text: string;
+  type: 'note' | 'proof';
+  timestamp: string;
+  url?: string;
+}
+
 export interface Workflow {
   id: string;
   title: string;
@@ -18,6 +37,8 @@ export interface Workflow {
   isPublic?: boolean;
   proofUrl?: string;
   proofType?: 'image' | 'video';
+  comments?: Comment[];
+  contributions?: Contribution[];
 }
 
 export interface AutomationIdea {

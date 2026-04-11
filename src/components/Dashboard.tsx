@@ -68,7 +68,6 @@ export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>('dashboard');
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
-  const [activeModalTab, setActiveModalTab] = useState<'details' | 'plan'>('details');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -82,6 +81,11 @@ export default function Dashboard() {
   const [publicWorkflows, setPublicWorkflows] = useState<Workflow[]>([]);
   const [isPublicLoading, setIsPublicLoading] = useState(false);
   const [communityTab, setCommunityTab] = useState<'all' | 'proven' | 'collaboration'>('all');
+  const [activeModalTab, setActiveModalTab] = useState<'details' | 'plan' | 'community'>('details');
+  const [commentText, setCommentText] = useState('');
+  const [noteText, setNoteText] = useState('');
+  const [noteType, setNoteType] = useState<'note' | 'proof'>('note');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -209,7 +213,18 @@ export default function Dashboard() {
         id: doc.id,
         ...doc.data()
       })) as Workflow[];
-      setPublicWorkflows(docs);
+      
+      // Auto-filter duplicates by title for the community view
+      const uniqueDocs = docs.reduce((acc: Workflow[], current) => {
+        const x = acc.find(item => item.title.toLowerCase() === current.title.toLowerCase());
+        if (!x) {
+          return acc.concat([current]);
+        } else {
+          return acc;
+        }
+      }, []);
+
+      setPublicWorkflows(uniqueDocs);
       setIsPublicLoading(false);
     }, (error) => {
       console.error("Public fetch error:", error);
@@ -235,6 +250,15 @@ export default function Dashboard() {
     if (newWorkflow.tools.trim() === '') {
       alert("⚠️ Please specify at least one tool used in this workflow.");
       return;
+    }
+
+    // Duplicate Check - Only for Public workflows
+    if (newWorkflow.isPublic) {
+      const isDuplicate = publicWorkflows.some(w => w.title.toLowerCase() === newWorkflow.title.toLowerCase());
+      if (isDuplicate) {
+        alert("⚠️ A workflow with this title already exists in the community library. Please choose a unique name or contribute to the existing one!");
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -319,6 +343,58 @@ export default function Dashboard() {
     }
   };
 
+  const handleAddComment = async () => {
+    if (!selectedWorkflow || !commentText.trim() || !auth.currentUser) return;
+    setIsSubmittingFeedback(true);
+    try {
+      const newComment = {
+        id: Date.now().toString(),
+        userId: auth.currentUser.uid,
+        userName: auth.currentUser.displayName || 'Anonymous',
+        userPhoto: auth.currentUser.photoURL || undefined,
+        text: commentText,
+        timestamp: new Date().toISOString()
+      };
+
+      const workflowRef = doc(db, 'workflows', selectedWorkflow.id);
+      const updatedComments = [...(selectedWorkflow.comments || []), newComment];
+      
+      await updateDoc(workflowRef, { comments: updatedComments });
+      setSelectedWorkflow({ ...selectedWorkflow, comments: updatedComments });
+      setCommentText('');
+    } catch (error) {
+      console.error("Failed to add comment:", error);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
+  const handleAddContribution = async () => {
+    if (!selectedWorkflow || !noteText.trim() || !auth.currentUser) return;
+    setIsSubmittingFeedback(true);
+    try {
+      const newContribution = {
+        id: Date.now().toString(),
+        userId: auth.currentUser.uid,
+        userName: auth.currentUser.displayName || 'Anonymous',
+        text: noteText,
+        type: noteType,
+        timestamp: new Date().toISOString()
+      };
+
+      const workflowRef = doc(db, 'workflows', selectedWorkflow.id);
+      const updatedContributions = [...(selectedWorkflow.contributions || []), newContribution];
+      
+      await updateDoc(workflowRef, { contributions: updatedContributions });
+      setSelectedWorkflow({ ...selectedWorkflow, contributions: updatedContributions });
+      setNoteText('');
+    } catch (error) {
+      console.error("Failed to add contribution:", error);
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
   const markAsCompleted = async (id: string) => {
     setIsUpdatingStatus(true);
     try {
@@ -351,10 +427,23 @@ export default function Dashboard() {
   const toggleWorkflowVisibility = async (workflow: Workflow) => {
     if (!auth.currentUser || workflow.userId !== auth.currentUser.uid) return;
     
+    const newVisibility = !workflow.isPublic;
+
+    // Check for duplicates if trying to make public
+    if (newVisibility) {
+      const isDuplicate = publicWorkflows.some(w => 
+        w.id !== workflow.id && 
+        w.title.toLowerCase() === workflow.title.toLowerCase()
+      );
+      if (isDuplicate) {
+        alert("⚠️ Cannot share: A workflow with this title already exists in the community library.");
+        return;
+      }
+    }
+    
     setIsUpdatingStatus(true);
     try {
       const workflowRef = doc(db, 'workflows', workflow.id);
-      const newVisibility = !workflow.isPublic;
       await updateDoc(workflowRef, { isPublic: newVisibility });
       
       // Update local state for the selected workflow if it's open
@@ -837,6 +926,17 @@ export default function Dashboard() {
                     >
                       Automation Plan
                     </button>
+                    {(activeView === 'community' || activeView === 'published') && selectedWorkflow.isPublic && (
+                      <button 
+                        onClick={() => setActiveModalTab('community')}
+                        className={cn(
+                          "px-4 py-1.5 text-xs font-bold rounded-md transition-all",
+                          activeModalTab === 'community' ? "bg-aec-accent text-white" : "text-slate-400 hover:text-slate-200"
+                        )}
+                      >
+                        Community
+                      </button>
+                    )}
                   </div>
                   <button 
                     onClick={() => {
@@ -852,7 +952,7 @@ export default function Dashboard() {
               
               <div className={cn(
                 "max-h-[80vh] flex flex-col",
-                activeModalTab === 'details' ? "p-8 overflow-y-auto space-y-8" : "p-0 overflow-hidden"
+                (activeModalTab === 'details' || activeModalTab === 'community') ? "p-8 overflow-y-auto space-y-8" : "p-0 overflow-hidden"
               )}>
                 {activeModalTab === 'details' ? (
                   <>
@@ -996,6 +1096,124 @@ export default function Dashboard() {
                       )}
                     </div>
                   </>
+                ) : activeModalTab === 'community' ? (
+                  <div className="space-y-8">
+                    {/* Contributions Section */}
+                    <section>
+                      <h4 className="text-xs uppercase font-bold text-slate-500 mb-4 tracking-widest flex items-center gap-2">
+                        <BookCheck className="w-4 h-4" />
+                        Community Contributions & Proof
+                      </h4>
+                      <div className="space-y-4 mb-6">
+                        {selectedWorkflow.contributions && selectedWorkflow.contributions.length > 0 ? (
+                          selectedWorkflow.contributions.map(contribution => (
+                            <div key={contribution.id} className="p-4 rounded-xl bg-slate-900 border border-aec-border">
+                              <div className="flex justify-between items-start mb-2">
+                                <span className="text-xs font-bold text-slate-200">{contribution.userName}</span>
+                                <span className={cn(
+                                  "text-[10px] px-2 py-0.5 rounded uppercase font-bold",
+                                  contribution.type === 'proof' ? "bg-emerald-500/10 text-emerald-400" : "bg-blue-500/10 text-blue-400"
+                                )}>
+                                  {contribution.type}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-400">{contribution.text}</p>
+                              <div className="text-[10px] text-slate-600 mt-2">
+                                {new Date(contribution.timestamp).toLocaleDateString()}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-600 italic">No contributions yet. Be the first to add a note or proof!</p>
+                        )}
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-slate-900/50 border border-aec-border border-dashed">
+                        <div className="flex gap-2 mb-3">
+                          <button 
+                            onClick={() => setNoteType('note')}
+                            className={cn(
+                              "px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all",
+                              noteType === 'note' ? "bg-blue-500 text-white" : "bg-slate-800 text-slate-500"
+                            )}
+                          >
+                            Add Note
+                          </button>
+                          <button 
+                            onClick={() => setNoteType('proof')}
+                            className={cn(
+                              "px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all",
+                              noteType === 'proof' ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-500"
+                            )}
+                          >
+                            Add Proof
+                          </button>
+                        </div>
+                        <textarea 
+                          value={noteText}
+                          onChange={e => setNoteText(e.target.value)}
+                          placeholder={noteType === 'note' ? "Add a technical note or tip..." : "Describe your implementation proof..."}
+                          className="w-full bg-slate-900 border border-aec-border rounded-lg p-3 text-sm text-slate-300 focus:ring-1 focus:ring-aec-accent outline-none min-h-[80px]"
+                        />
+                        <button 
+                          onClick={handleAddContribution}
+                          disabled={isSubmittingFeedback || !noteText.trim()}
+                          className="mt-3 w-full py-2 bg-aec-accent hover:bg-emerald-600 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                        >
+                          {isSubmittingFeedback ? 'Submitting...' : 'Submit Contribution'}
+                        </button>
+                      </div>
+                    </section>
+
+                    {/* Feedback Section */}
+                    <section>
+                      <h4 className="text-xs uppercase font-bold text-slate-500 mb-4 tracking-widest flex items-center gap-2">
+                        <Users className="w-4 h-4" />
+                        Feedback & Discussion
+                      </h4>
+                      <div className="space-y-4 mb-6">
+                        {selectedWorkflow.comments && selectedWorkflow.comments.length > 0 ? (
+                          selectedWorkflow.comments.map(comment => (
+                            <div key={comment.id} className="flex gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-800 shrink-0 flex items-center justify-center overflow-hidden border border-aec-border">
+                                {comment.userPhoto ? (
+                                  <img src={comment.userPhoto} alt={comment.userName} className="w-full h-full object-cover" />
+                                ) : (
+                                  <UserIcon className="w-4 h-4 text-slate-500" />
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold text-slate-200">{comment.userName}</span>
+                                  <span className="text-[10px] text-slate-600">{new Date(comment.timestamp).toLocaleDateString()}</span>
+                                </div>
+                                <p className="text-sm text-slate-400">{comment.text}</p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-slate-600 italic">No feedback yet.</p>
+                        )}
+                      </div>
+
+                      <div className="flex gap-3">
+                        <input 
+                          type="text"
+                          value={commentText}
+                          onChange={e => setCommentText(e.target.value)}
+                          placeholder="Add a comment..."
+                          className="flex-1 bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm text-slate-300 focus:ring-1 focus:ring-aec-accent outline-none"
+                        />
+                        <button 
+                          onClick={handleAddComment}
+                          disabled={isSubmittingFeedback || !commentText.trim()}
+                          className="px-4 py-2 bg-aec-accent hover:bg-emerald-600 text-white rounded-lg text-sm font-bold transition-all disabled:opacity-50"
+                        >
+                          Post
+                        </button>
+                      </div>
+                    </section>
+                  </div>
                 ) : (
                   <div className="h-[700px]">
                     <AIAdvisor 

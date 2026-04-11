@@ -7,6 +7,7 @@ import {
   Shield, 
   Trash2, 
   Download,
+  Upload,
   Moon,
   Sun,
   Globe,
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Workflow } from '../types';
-import { auth, db, doc, writeBatch } from '../firebase';
+import { auth, db, doc, writeBatch, collection, addDoc } from '../firebase';
 
 interface Props {
   workflows: Workflow[];
@@ -27,6 +28,52 @@ export default function SettingsView({ workflows }: Props) {
   const [persona, setPersona] = useState('Expert BIM Manager');
   const [isExporting, setIsExporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !auth.currentUser) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const importedWorkflows = JSON.parse(content) as Workflow[];
+        
+        if (!Array.isArray(importedWorkflows)) {
+          throw new Error("Invalid format: Expected an array of workflows.");
+        }
+
+        const batch = writeBatch(db);
+        let count = 0;
+
+        for (const workflow of importedWorkflows) {
+          // Clean up the workflow object for new entry
+          const { id, ...workflowData } = workflow;
+          const newDocRef = doc(collection(db, 'workflows'));
+          batch.set(newDocRef, {
+            ...workflowData,
+            userId: auth.currentUser?.uid,
+            createdAt: new Date().toISOString(),
+            lastSynced: new Date().toISOString()
+          });
+          count++;
+        }
+
+        await batch.commit();
+        alert(`✅ Successfully imported ${count} workflows!`);
+      } catch (error) {
+        console.error("Import failed:", error);
+        alert("❌ Import failed. Please ensure the file is a valid AEC Workflow JSON.");
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const handleExport = () => {
     if (workflows.length === 0) {
@@ -141,28 +188,47 @@ export default function SettingsView({ workflows }: Props) {
           <p className="text-sm text-slate-400 mt-1">Manage your local workflow database and exports.</p>
         </div>
         <div className="p-6 space-y-4">
-          <div className="flex gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button 
               onClick={handleExport}
               disabled={isExporting}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
               {isExporting ? <span className="animate-pulse">Exporting...</span> : (
                 <>
                   <Download className="w-4 h-4" />
-                  Export JSON
+                  Export
                 </>
               )}
             </button>
             <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isImporting ? <span className="animate-pulse">Importing...</span> : (
+                <>
+                  <Upload className="w-4 h-4" />
+                  Import
+                </>
+              )}
+            </button>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleImport} 
+              accept=".json" 
+              className="hidden" 
+            />
+            <button 
               onClick={handleSync}
               disabled={isSyncing}
-              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
               {isSyncing ? <span className="animate-pulse">Syncing...</span> : (
                 <>
                   <Globe className="w-4 h-4" />
-                  Sync to Cloud
+                  Sync
                 </>
               )}
             </button>

@@ -74,7 +74,7 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
         </div>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="space-y-8">
         <div className="space-y-6">
           {/* Category Filter */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
@@ -96,9 +96,9 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
           </div>
 
           {/* Workflow Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {isLoading ? (
-              Array.from({ length: 4 }).map((_, i) => (
+              Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="glass-panel p-5 h-48 animate-pulse bg-slate-800/50" />
               ))
             ) : filteredWorkflows.length > 0 ? (
@@ -161,9 +161,9 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8 border-t border-aec-border/50">
           {/* ROI Chart */}
-          <div className="glass-panel p-6">
+          <div className="md:col-span-2 glass-panel p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-semibold text-slate-100 flex items-center gap-2">
                 <BarChart className="w-4 h-4 text-aec-accent" />
@@ -198,12 +198,21 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
             </div>
           </div>
 
-          <div className="p-6 glass-panel bg-aec-accent/5 border-aec-accent/20">
+          <div className="p-6 glass-panel bg-aec-accent/5 border-aec-accent/20 flex flex-col justify-center">
             <h4 className="text-sm font-bold text-aec-accent mb-2">Quick Insight</h4>
             <p className="text-xs text-slate-400 leading-relaxed">
               Based on your current list, <span className="text-slate-200 font-bold">BIM Management</span> tasks have the highest automation potential. 
               Focusing on these could save up to 15 hours per project week.
             </p>
+            <div className="mt-6 pt-6 border-t border-aec-border/30">
+              <div className="flex items-center justify-between text-[10px] text-slate-500 uppercase tracking-wider mb-2">
+                <span>Top Category</span>
+                <span className="text-aec-accent">BIM</span>
+              </div>
+              <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                <div className="bg-aec-accent h-full w-[85%]" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
