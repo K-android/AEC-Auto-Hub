@@ -332,17 +332,17 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
                     <div className="w-2 h-2 rounded-full bg-aec-accent animate-pulse" />
                     <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">AEC Technical Doc</span>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button 
                       onClick={() => copyToClipboard(msg.content)}
-                      className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border border-aec-border shadow-sm"
+                      className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border border-aec-border shadow-sm"
                     >
                       {copied ? <Check className="w-3 h-3 text-aec-accent" /> : <Copy className="w-3 h-3" />}
                       {copied ? 'Copied' : 'Copy Plan'}
                     </button>
                     <button 
                       onClick={() => downloadPlanAsPDF(msg.content, externalTrigger?.workflow.title || 'AEC')}
-                      className="flex items-center gap-2 px-4 py-2 bg-aec-accent text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg shadow-aec-accent/20 hover:bg-emerald-600"
+                      className="flex items-center gap-2 px-3 py-2 bg-aec-accent text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-lg shadow-aec-accent/20 hover:bg-emerald-600"
                     >
                       <Download className="w-3 h-3" />
                       Export PDF
