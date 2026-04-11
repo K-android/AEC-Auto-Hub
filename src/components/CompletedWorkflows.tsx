@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Workflow } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle } from 'lucide-react';
+import { CheckCircle2, ImageIcon, Video, ExternalLink, Plus, Trash2, HardHat, Building2, Cpu, Zap, RotateCcw, AlertCircle, Globe, Lock } from 'lucide-react';
 import { doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
@@ -57,6 +57,17 @@ export default function CompletedWorkflows({ workflows }: Props) {
     }
   };
 
+  const toggleVisibility = async (id: string, currentStatus: boolean) => {
+    try {
+      const workflowRef = doc(db, 'workflows', id);
+      await updateDoc(workflowRef, {
+        isPublic: !currentStatus
+      });
+    } catch (error) {
+      console.error("Error toggling visibility:", error);
+    }
+  };
+
   const deleteWorkflow = async (id: string) => {
     setIsDeleting(true);
     try {
@@ -71,8 +82,23 @@ export default function CompletedWorkflows({ workflows }: Props) {
   };
 
   return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="space-y-8 pb-20">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+            <CheckCircle2 className="w-7 h-7 text-aec-accent" />
+            Automation Showcase
+          </h2>
+          <p className="text-slate-400 mt-1">A professional portfolio of your successful AEC automations.</p>
+        </div>
+        <div className="flex items-center gap-4 p-1 bg-slate-900/50 rounded-xl border border-aec-border">
+          <div className="px-4 py-2 text-sm font-bold text-slate-300">
+            {completedWorkflows.length} Proven Solutions
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
         {completedWorkflows.length === 0 ? (
           <div className="col-span-full py-20 text-center glass-panel">
             <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-slate-700 opacity-20" />
@@ -87,14 +113,14 @@ export default function CompletedWorkflows({ workflows }: Props) {
               className="glass-panel overflow-hidden flex flex-col group"
             >
               {/* Proof Preview */}
-              <div className="aspect-video bg-slate-900 relative overflow-hidden group-hover:bg-slate-800 transition-colors">
+              <div className="aspect-video bg-slate-900 relative overflow-hidden group-hover:bg-slate-800 transition-all duration-500">
                 {workflow.proofUrl ? (
                   <>
                     {workflow.proofType === 'image' ? (
                       <img 
                         src={workflow.proofUrl} 
                         alt={workflow.title} 
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
@@ -105,30 +131,31 @@ export default function CompletedWorkflows({ workflows }: Props) {
                             href={workflow.proofUrl} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="p-3 bg-aec-accent rounded-full text-white shadow-xl"
+                            className="p-4 bg-aec-accent rounded-full text-white shadow-2xl hover:scale-110 transition-transform"
                           >
-                            <ExternalLink className="w-6 h-6" />
+                            <ExternalLink className="w-7 h-7" />
                           </a>
                         </div>
                       </div>
                     )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <button 
                       onClick={() => removeProof(workflow.id)}
-                      className="absolute top-2 right-2 p-2 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      className="absolute top-3 right-3 p-2 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all opacity-0 group-hover:opacity-100 backdrop-blur-md border border-red-500/20"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </>
                 ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center">
+                  <div className="w-full h-full flex flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-slate-900 to-aec-bg">
                     {editingId === workflow.id ? (
-                      <div className="w-full space-y-3">
-                        <div className="flex gap-2 p-1 bg-slate-800 rounded-lg">
+                      <div className="w-full space-y-4 animate-in fade-in zoom-in-95 duration-300">
+                        <div className="flex gap-2 p-1 bg-slate-800/50 rounded-xl border border-aec-border">
                           <button 
                             onClick={() => setProofType('image')}
                             className={cn(
-                              "flex-1 py-1 text-xs rounded-md transition-all",
-                              proofType === 'image' ? "bg-aec-accent text-white" : "text-slate-400 hover:text-slate-200"
+                              "flex-1 py-2 text-xs font-bold rounded-lg transition-all",
+                              proofType === 'image' ? "bg-aec-accent text-white shadow-lg shadow-aec-accent/20" : "text-slate-400 hover:text-slate-200"
                             )}
                           >
                             Image
@@ -136,44 +163,52 @@ export default function CompletedWorkflows({ workflows }: Props) {
                           <button 
                             onClick={() => setProofType('video')}
                             className={cn(
-                              "flex-1 py-1 text-xs rounded-md transition-all",
-                              proofType === 'video' ? "bg-aec-accent text-white" : "text-slate-400 hover:text-slate-200"
+                              "flex-1 py-2 text-xs font-bold rounded-lg transition-all",
+                              proofType === 'video' ? "bg-aec-accent text-white shadow-lg shadow-aec-accent/20" : "text-slate-400 hover:text-slate-200"
                             )}
                           >
                             Video
                           </button>
                         </div>
-                        <input 
-                          type="text" 
-                          placeholder="Paste image/video URL..."
-                          value={proofUrl}
-                          onChange={(e) => setProofUrl(e.target.value)}
-                          className="w-full bg-slate-950 border border-aec-border rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-aec-accent"
-                        />
-                        <div className="flex gap-2">
+                        <div className="relative">
+                          <input 
+                            type="text" 
+                            placeholder={proofType === 'image' ? "Paste image URL (Unsplash, etc)..." : "Paste video URL (YouTube, Vimeo)..."}
+                            value={proofUrl}
+                            onChange={(e) => setProofUrl(e.target.value)}
+                            className="w-full bg-slate-950/50 border border-aec-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-aec-accent/50 transition-all"
+                          />
+                        </div>
+                        <div className="flex gap-3">
                           <button 
-                            onClick={() => setEditingId(null)}
-                            className="flex-1 py-2 text-xs text-slate-400 hover:text-slate-200"
+                            onClick={() => {
+                              setEditingId(null);
+                              setProofUrl('');
+                            }}
+                            className="flex-1 py-2.5 text-sm font-bold text-slate-400 hover:text-slate-200 transition-colors"
                           >
                             Cancel
                           </button>
                           <button 
                             onClick={() => handleAddProof(workflow.id)}
-                            className="flex-1 py-2 text-xs bg-aec-accent text-white rounded-lg font-bold"
+                            className="flex-1 py-2.5 text-sm bg-aec-accent text-white rounded-xl font-bold shadow-lg shadow-aec-accent/20 hover:bg-emerald-600 transition-all"
                           >
-                            Save Proof
+                            Add Proof
                           </button>
                         </div>
                       </div>
                     ) : (
                       <>
-                        <ImageIcon className="w-10 h-10 text-slate-700 mb-3" />
-                        <p className="text-xs text-slate-500 mb-4">No proof added yet</p>
+                        <div className="w-16 h-16 bg-aec-accent/5 rounded-2xl flex items-center justify-center mb-4 border border-aec-accent/10">
+                          <ImageIcon className="w-8 h-8 text-aec-accent/40" />
+                        </div>
+                        <h5 className="text-sm font-bold text-slate-300 mb-1">Visual Proof Required</h5>
+                        <p className="text-xs text-slate-500 mb-6 max-w-[200px]">Add an image or video to showcase this automation in your portfolio.</p>
                         <button 
                           onClick={() => setEditingId(workflow.id)}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition-colors"
+                          className="flex items-center gap-2 px-6 py-2.5 bg-aec-accent text-white rounded-xl text-sm font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-aec-accent/20"
                         >
-                          <Plus className="w-3 h-3" />
+                          <Plus className="w-4 h-4" />
                           Add Proof
                         </button>
                       </>
@@ -183,61 +218,65 @@ export default function CompletedWorkflows({ workflows }: Props) {
               </div>
 
               {/* Content */}
-              <div className="p-5 flex-1 flex flex-col">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-aec-accent bg-aec-accent/10 px-2 py-0.5 rounded">
+              <div className="p-6 flex-1 flex flex-col bg-gradient-to-b from-aec-card/50 to-aec-bg">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-aec-accent/10 text-aec-accent border border-aec-accent/20">
                     {workflow.category}
                   </span>
-                  <div className="flex items-center gap-1 text-emerald-500">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span className="text-[10px] font-bold uppercase">Completed</span>
+                  <div className="flex items-center gap-1.5 text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-lg border border-emerald-400/20">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span className="text-[10px] font-bold uppercase tracking-tight">Proven Solution</span>
                   </div>
                 </div>
                 
-                <h4 className="font-bold text-slate-100 mb-2 group-hover:text-aec-accent transition-colors">
+                <h4 className="text-lg font-bold text-slate-100 mb-3 group-hover:text-aec-accent transition-colors leading-tight">
                   {workflow.title}
                 </h4>
-                <p className="text-xs text-slate-400 line-clamp-2 mb-4">
+                <p className="text-sm text-slate-400 leading-relaxed line-clamp-3 mb-6">
                   {workflow.description}
                 </p>
 
-                <div className="mt-auto pt-4 border-t border-aec-border/50 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex -space-x-2">
+                <div className="mt-auto pt-6 border-t border-aec-border/50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="flex -space-x-2 mr-2">
                       {workflow.tools.slice(0, 3).map((tool, i) => (
-                        <div key={i} className="w-6 h-6 rounded-full bg-slate-800 border border-aec-bg flex items-center justify-center text-[8px] font-bold text-slate-400">
+                        <div key={i} className="w-8 h-8 rounded-xl bg-slate-800 border-2 border-aec-bg flex items-center justify-center text-[10px] font-bold text-slate-300 shadow-sm" title={tool}>
                           {tool[0]}
                         </div>
                       ))}
-                      {workflow.tools.length > 3 && (
-                        <div className="w-6 h-6 rounded-full bg-slate-800 border border-aec-bg flex items-center justify-center text-[8px] font-bold text-slate-400">
-                          +{workflow.tools.length - 3}
-                        </div>
-                      )}
                     </div>
-                    <button 
-                      onClick={() => revertToPending(workflow.id)}
-                      className="p-1.5 bg-slate-800 hover:bg-aec-accent/20 hover:text-aec-accent text-slate-500 rounded-md transition-all group/revert relative"
-                      title="Revert to Pending"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-[10px] text-white rounded opacity-0 group-hover/revert:opacity-100 pointer-events-none whitespace-nowrap border border-aec-border">
-                        Revert to Pending
-                      </span>
-                    </button>
-                    <button 
-                      onClick={() => setWorkflowToDelete(workflow.id)}
-                      className="p-1.5 bg-slate-800 hover:bg-red-500/20 hover:text-red-500 text-slate-500 rounded-md transition-all group/delete relative"
-                      title="Delete Workflow"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-[10px] text-white rounded opacity-0 group-hover/delete:opacity-100 pointer-events-none whitespace-nowrap border border-aec-border">
-                        Delete Workflow
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={() => revertToPending(workflow.id)}
+                        className="p-2 bg-slate-800/50 hover:bg-aec-accent/20 hover:text-aec-accent text-slate-500 rounded-xl transition-all group/revert relative border border-aec-border/50"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-3 py-1.5 bg-slate-900 text-[10px] text-white rounded-lg opacity-0 group-hover/revert:opacity-100 pointer-events-none whitespace-nowrap border border-aec-border shadow-2xl z-10">
+                          Revert to In-Progress
+                        </span>
+                      </button>
+                      <button 
+                        onClick={() => toggleVisibility(workflow.id, !!workflow.isPublic)}
+                        className={cn(
+                          "p-2 rounded-xl transition-all group/share relative border",
+                          workflow.isPublic 
+                            ? "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20" 
+                            : "bg-slate-800/50 border-aec-border/50 text-slate-500 hover:bg-slate-700"
+                        )}
+                      >
+                        {workflow.isPublic ? <Globe className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-3 py-1.5 bg-slate-900 text-[10px] text-white rounded-lg opacity-0 group-hover/share:opacity-100 pointer-events-none whitespace-nowrap border border-aec-border shadow-2xl z-10">
+                          {workflow.isPublic ? 'Make Private' : 'Publish to Showcase'}
+                        </span>
+                      </button>
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-500 font-mono">
-                    ROI: <span className="text-aec-accent">{workflow.roi}</span>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">ROI Yield</span>
+                    <div className="flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-aec-accent" />
+                      <span className="text-sm font-bold text-slate-100">{workflow.roi}</span>
+                    </div>
                   </div>
                 </div>
               </div>

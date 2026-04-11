@@ -15,6 +15,7 @@ export interface Workflow {
   createdAt?: string;
   isAIDiscovery?: boolean;
   status?: 'Pending' | 'In Progress' | 'Completed';
+  isPublic?: boolean;
   proofUrl?: string;
   proofType?: 'image' | 'video';
 }

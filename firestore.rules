@@ -66,6 +66,7 @@ service cloud.firestore {
              data.description is string && data.description.size() < 2000 &&
              data.userId == request.auth.uid &&
              (!('status' in data) || data.status in ['Pending', 'In Progress', 'Completed']) &&
+             (!('isPublic' in data) || data.isPublic is bool) &&
              (!('proofUrl' in data) || data.proofUrl is string) &&
              (!('proofType' in data) || data.proofType in ['image', 'video']);
     }
@@ -82,7 +83,7 @@ service cloud.firestore {
     // ===============================================================
 
     match /workflows/{workflowId} {
-      allow read: if isDocOwner();
+      allow read: if isDocOwner() || (resource != null && resource.data.isPublic == true);
       allow create: if isAuthenticated() && isValidWorkflow(request.resource.data);
       allow update: if isDocOwner() && isValidWorkflow(request.resource.data);
       allow delete: if isDocOwner();

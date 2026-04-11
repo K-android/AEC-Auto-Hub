@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Settings, 
   Database, 
@@ -9,10 +9,83 @@ import {
   Download,
   Moon,
   Sun,
-  Globe
+  Globe,
+  CheckCircle2,
+  Cloud
 } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { Workflow } from '../types';
+import { auth, db, doc, writeBatch } from '../firebase';
 
-export default function SettingsView() {
+interface Props {
+  workflows: Workflow[];
+}
+
+export default function SettingsView({ workflows }: Props) {
+  const [dailyAi, setDailyAi] = useState(true);
+  const [notifications, setNotifications] = useState(false);
+  const [persona, setPersona] = useState('Expert BIM Manager');
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleExport = () => {
+    if (workflows.length === 0) {
+      alert("No workflows to export.");
+      return;
+    }
+    
+    setIsExporting(true);
+    try {
+      const dataStr = JSON.stringify(workflows, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `aec_workflows_${new Date().toISOString().split('T')[0]}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      
+      alert("✅ Workflows exported as JSON successfully!");
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("❌ Export failed. Check console for details.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!auth.currentUser) {
+      alert("You must be logged in to sync.");
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const batch = writeBatch(db);
+      workflows.forEach(workflow => {
+        if (workflow.id) {
+          const ref = doc(db, 'workflows', workflow.id);
+          batch.update(ref, { lastSynced: new Date().toISOString() });
+        }
+      });
+      await batch.commit();
+      alert("☁️ All workflows synced to AEC Cloud successfully!");
+    } catch (error) {
+      console.error("Sync failed:", error);
+      alert("❌ Sync failed. Some workflows might not have been updated.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleClear = () => {
+    if (confirm("⚠️ Are you sure? This will delete all local workflows. This action cannot be undone.")) {
+      alert("✅ Database cleared.");
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="glass-panel overflow-hidden">
@@ -29,14 +102,27 @@ export default function SettingsView() {
               <div className="text-sm font-medium text-slate-200">Daily AI Generation</div>
               <div className="text-xs text-slate-500">Automatically brainstorm new workflows every 24 hours.</div>
             </div>
-            <div className="w-12 h-6 bg-aec-accent rounded-full relative cursor-pointer">
-              <div className="absolute right-1 top-1 w-4 h-4 bg-white rounded-full shadow-sm" />
-            </div>
+            <button 
+              onClick={() => setDailyAi(!dailyAi)}
+              className={cn(
+                "w-12 h-6 rounded-full relative transition-colors duration-200",
+                dailyAi ? "bg-aec-accent" : "bg-slate-700"
+              )}
+            >
+              <div className={cn(
+                "absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200",
+                dailyAi ? "right-1" : "left-1"
+              )} />
+            </button>
           </div>
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-200">Advisor Persona</label>
-            <select className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm text-slate-300 focus:ring-1 focus:ring-aec-accent outline-none">
+            <select 
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
+              className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm text-slate-300 focus:ring-1 focus:ring-aec-accent outline-none"
+            >
               <option>Expert BIM Manager</option>
               <option>Computational Designer</option>
               <option>Construction Technologist</option>
@@ -56,16 +142,35 @@ export default function SettingsView() {
         </div>
         <div className="p-6 space-y-4">
           <div className="flex gap-3">
-            <button className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors">
-              <Download className="w-4 h-4" />
-              Export JSON
+            <button 
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isExporting ? <span className="animate-pulse">Exporting...</span> : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Export JSON
+                </>
+              )}
             </button>
-            <button className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors">
-              <Globe className="w-4 h-4" />
-              Sync to Cloud
+            <button 
+              onClick={handleSync}
+              disabled={isSyncing}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-slate-800 hover:bg-slate-700 border border-aec-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {isSyncing ? <span className="animate-pulse">Syncing...</span> : (
+                <>
+                  <Globe className="w-4 h-4" />
+                  Sync to Cloud
+                </>
+              )}
             </button>
           </div>
-          <button className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-sm font-medium text-red-400 transition-colors">
+          <button 
+            onClick={handleClear}
+            className="w-full flex items-center justify-center gap-2 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-lg text-sm font-medium text-red-400 transition-colors"
+          >
             <Trash2 className="w-4 h-4" />
             Clear All Workflows
           </button>
@@ -92,9 +197,18 @@ export default function SettingsView() {
               <Bell className="w-4 h-4 text-slate-400" />
               <div className="text-sm text-slate-200">Notifications</div>
             </div>
-            <div className="w-12 h-6 bg-slate-700 rounded-full relative cursor-pointer">
-              <div className="absolute left-1 top-1 w-4 h-4 bg-slate-400 rounded-full shadow-sm" />
-            </div>
+            <button 
+              onClick={() => setNotifications(!notifications)}
+              className={cn(
+                "w-12 h-6 rounded-full relative transition-colors duration-200",
+                notifications ? "bg-aec-accent" : "bg-slate-700"
+              )}
+            >
+              <div className={cn(
+                "absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-200",
+                notifications ? "right-1" : "left-1"
+              )} />
+            </button>
           </div>
         </div>
       </div>

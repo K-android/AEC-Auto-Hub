@@ -20,6 +20,14 @@
   @apply bg-aec-card/50 backdrop-blur-md border border-aec-border rounded-xl;
 }
 
+.markdown-body {
+  @apply break-words;
+}
+
+.markdown-body pre {
+  @apply max-w-full overflow-x-auto;
+}
+
 .data-grid-line {
   @apply border-b border-aec-border/50;
 }

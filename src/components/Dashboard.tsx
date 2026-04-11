@@ -6,6 +6,7 @@ import WorkflowDiscovery from './WorkflowDiscovery';
 import AnalyticsView from './AnalyticsView';
 import SettingsView from './SettingsView';
 import CompletedWorkflows from './CompletedWorkflows';
+import KanbanBoard from './KanbanBoard';
 import { mockWorkflows } from '../data/mockWorkflows';
 import { 
   auth, 
@@ -27,6 +28,7 @@ import {
   Search, 
   Filter, 
   Plus, 
+  PlusCircle,
   BarChart, 
   Settings, 
   HardHat,
@@ -46,13 +48,21 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   Video,
-  Trash2
+  Trash2,
+  Columns3,
+  List as ListIcon,
+  Users,
+  Globe,
+  Lock,
+  BookCheck,
+  RefreshCw,
+  ExternalLink
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
 
-type View = 'dashboard' | 'completed' | 'analytics' | 'settings';
+type View = 'dashboard' | 'completed' | 'analytics' | 'settings' | 'community' | 'published';
 
 export default function Dashboard() {
   const [activeView, setActiveView] = useState<View>('dashboard');
@@ -68,6 +78,10 @@ export default function Dashboard() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [workflowToDelete, setWorkflowToDelete] = useState<string | null>(null);
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
+  const [dashboardMode, setDashboardMode] = useState<'list' | 'kanban'>('list');
+  const [publicWorkflows, setPublicWorkflows] = useState<Workflow[]>([]);
+  const [isPublicLoading, setIsPublicLoading] = useState(false);
+  const [communityTab, setCommunityTab] = useState<'all' | 'proven' | 'collaboration'>('all');
 
   useEffect(() => {
     const checkDailyDiscovery = async () => {
@@ -102,7 +116,7 @@ export default function Dashboard() {
         {
           "title": "string",
           "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction",
-          "description": "string (max 2 sentences)",
+          "description": "A professional, contextually relevant description of exactly one or two sentences. Focus on how this workflow automates processes and improves efficiency in the AEC industry.",
           "painPoint": "string",
           "automationPotential": number (0-100),
           "complexity": "Low" | "Medium" | "High",
@@ -123,7 +137,8 @@ export default function Dashboard() {
           ...workflowData,
           userId: auth.currentUser.uid,
           createdAt: new Date().toISOString(),
-          isAIDiscovery: true
+          isAIDiscovery: true,
+          status: 'Pending'
         });
         
         if (isManual) {
@@ -153,7 +168,8 @@ export default function Dashboard() {
     roi: 'Medium',
     priority: 'P2' as Workflow['priority'],
     estimatedEffort: '',
-    successMetrics: ''
+    successMetrics: '',
+    isPublic: false
   });
 
   useEffect(() => {
@@ -179,17 +195,56 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (activeView !== 'community') return;
+
+    setIsPublicLoading(true);
+    const q = query(
+      collection(db, 'workflows'),
+      where('isPublic', '==', true)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Workflow[];
+      setPublicWorkflows(docs);
+      setIsPublicLoading(false);
+    }, (error) => {
+      console.error("Public fetch error:", error);
+      setIsPublicLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [activeView]);
+
   const handleAddWorkflow = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth.currentUser) return;
     
+    // Strict Validation to prevent "random shit"
+    if (newWorkflow.title.trim().length < 5) {
+      alert("⚠️ Workflow title is too short. Please provide a descriptive name.");
+      return;
+    }
+    if (newWorkflow.description.trim().length < 20) {
+      alert("⚠️ Description is too brief. Please explain the workflow in more detail.");
+      return;
+    }
+    if (newWorkflow.tools.trim() === '') {
+      alert("⚠️ Please specify at least one tool used in this workflow.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'workflows'), {
         ...newWorkflow,
         tools: newWorkflow.tools.split(',').map(t => t.trim()).filter(t => t !== ''),
         userId: auth.currentUser.uid,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        status: 'Pending'
       });
       
       setIsAddModalOpen(false);
@@ -204,7 +259,8 @@ export default function Dashboard() {
         roi: 'Medium',
         priority: 'P2',
         estimatedEffort: '',
-        successMetrics: ''
+        successMetrics: '',
+        isPublic: false
       });
     } catch (error) {
       console.error("Failed to add workflow:", error);
@@ -226,7 +282,8 @@ export default function Dashboard() {
         batch.set(newDocRef, {
           ...workflowData,
           userId: auth.currentUser?.uid,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          status: 'Pending'
         });
       });
       await batch.commit();
@@ -244,8 +301,12 @@ export default function Dashboard() {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-latest",
-        contents: `Generate a professional, concise description (max 2 sentences) for an AEC (Architecture, Engineering, Construction) workflow titled: "${newWorkflow.title}". Focus on the automation aspect.`,
+        model: "gemini-3-flash-preview",
+        contents: `Generate a professional, contextually relevant description for an AEC (Architecture, Engineering, Construction) workflow. 
+        Title: "${newWorkflow.title}"
+        Category: "${newWorkflow.category}"
+        
+        The description MUST be exactly one or two sentences long. Focus on how this workflow automates processes and improves efficiency in the AEC industry. Do not include any introductory text or formatting.`,
       });
       
       if (response.text) {
@@ -282,6 +343,26 @@ export default function Dashboard() {
       setWorkflowToDelete(null);
     } catch (error) {
       console.error("Failed to delete workflow:", error);
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const toggleWorkflowVisibility = async (workflow: Workflow) => {
+    if (!auth.currentUser || workflow.userId !== auth.currentUser.uid) return;
+    
+    setIsUpdatingStatus(true);
+    try {
+      const workflowRef = doc(db, 'workflows', workflow.id);
+      const newVisibility = !workflow.isPublic;
+      await updateDoc(workflowRef, { isPublic: newVisibility });
+      
+      // Update local state for the selected workflow if it's open
+      if (selectedWorkflow?.id === workflow.id) {
+        setSelectedWorkflow({ ...selectedWorkflow, isPublic: newVisibility });
+      }
+    } catch (error) {
+      console.error("Failed to toggle visibility:", error);
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -347,37 +428,67 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <nav className="space-y-2 flex-1">
-          <button 
-            onClick={() => setActiveView('dashboard')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
-              activeView === 'dashboard' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
-            )}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Dashboard
-          </button>
-          <button 
-            onClick={() => setActiveView('analytics')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
-              activeView === 'analytics' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
-            )}
-          >
-            <BarChart className="w-4 h-4" />
-            Analytics
-          </button>
-          <button 
-            onClick={() => setActiveView('completed')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
-              activeView === 'completed' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
-            )}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            Completed
-          </button>
+        <nav className="flex-1 space-y-1 overflow-y-auto pr-2 custom-scrollbar">
+          <div className="pb-4 mb-4 border-b border-aec-border/50">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-4">Workspace</p>
+            <button 
+              onClick={() => setActiveView('dashboard')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+                activeView === 'dashboard' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Dashboard
+            </button>
+            <button 
+              onClick={() => setActiveView('analytics')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+                activeView === 'analytics' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <BarChart className="w-4 h-4" />
+              Analytics
+            </button>
+            <button 
+              onClick={() => setActiveView('completed')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+                activeView === 'completed' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Completed
+            </button>
+          </div>
+
+          <div className="pb-4 mb-4 border-b border-aec-border/50">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 px-4">Global Library</p>
+            <button 
+              onClick={() => setActiveView('community')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+                activeView === 'community' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <Users className="w-4 h-4" />
+              Community
+            </button>
+            <button 
+              onClick={() => setActiveView('published')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-all font-medium",
+                activeView === 'published' ? "bg-aec-accent/10 text-aec-accent" : "text-slate-400 hover:bg-slate-800"
+              )}
+            >
+              <BookCheck className="w-4 h-4" />
+              My Published
+            </button>
+          </div>
+        </nav>
+
+        <div className="pt-4 mt-auto border-t border-aec-border space-y-2">
           <button 
             onClick={() => setActiveView('settings')}
             className={cn(
@@ -388,10 +499,8 @@ export default function Dashboard() {
             <Settings className="w-4 h-4" />
             Settings
           </button>
-        </nav>
-
-        <div className="pt-6 mt-auto border-t border-aec-border space-y-4">
-          <div className="flex items-center gap-3 px-3 py-2">
+          
+          <div className="flex items-center gap-3 px-3 py-2 bg-slate-900/50 rounded-xl border border-aec-border/50">
             <div className="w-8 h-8 rounded-full bg-slate-800 border border-aec-border flex items-center justify-center overflow-hidden">
               {auth.currentUser?.photoURL ? (
                 <img src={auth.currentUser.photoURL} alt="User" className="w-full h-full object-cover" />
@@ -422,12 +531,16 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold text-slate-100">
                 {activeView === 'dashboard' ? 'Workflow Dashboard' : 
                  activeView === 'completed' ? 'Completed Workflows' :
-                 activeView === 'analytics' ? 'Workflow Analytics' : 'System Settings'}
+                 activeView === 'analytics' ? 'Workflow Analytics' : 
+                 activeView === 'community' ? 'Community Library' : 
+                 activeView === 'published' ? 'My Published Workflows' : 'System Settings'}
               </h2>
               <p className="text-slate-400 text-sm">
                 {activeView === 'dashboard' ? 'Manage and discover your AEC automation pipeline.' : 
                  activeView === 'completed' ? 'Showcase of your automated AEC workflows and proofs.' :
-                 activeView === 'analytics' ? 'Deep dive into your automation data.' : 'Configure your AI preferences.'}
+                 activeView === 'analytics' ? 'Deep dive into your automation data.' : 
+                 activeView === 'community' ? 'Discover automation workflows shared by the AEC community.' : 
+                 activeView === 'published' ? 'Workflows you have shared with the community.' : 'Configure your AI preferences.'}
               </p>
             </div>
             {activeView === 'dashboard' && workflows.length > 0 && (
@@ -442,14 +555,38 @@ export default function Dashboard() {
             )}
           </div>
           {activeView === 'dashboard' && (
-            <button 
-              onClick={() => generateDailyDiscovery(true)}
-              disabled={isDailyDiscoveryLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-aec-accent/10 hover:bg-aec-accent/20 text-aec-accent rounded-lg border border-aec-accent/30 transition-all font-bold text-sm disabled:opacity-50"
-            >
-              <Sparkles className={cn("w-4 h-4", isDailyDiscoveryLoading && "animate-spin")} />
-              {isDailyDiscoveryLoading ? 'Discovering...' : 'Discover New Idea'}
-            </button>
+            <div className="flex items-center gap-3">
+              <div className="flex bg-slate-900 p-1 rounded-lg border border-aec-border mr-2">
+                <button 
+                  onClick={() => setDashboardMode('list')}
+                  className={cn(
+                    "p-1.5 rounded-md transition-all",
+                    dashboardMode === 'list' ? "bg-aec-accent text-white" : "text-slate-500 hover:text-slate-300"
+                  )}
+                  title="List View"
+                >
+                  <ListIcon className="w-4 h-4" />
+                </button>
+                <button 
+                  onClick={() => setDashboardMode('kanban')}
+                  className={cn(
+                    "p-1.5 rounded-md transition-all",
+                    dashboardMode === 'kanban' ? "bg-aec-accent text-white" : "text-slate-500 hover:text-slate-300"
+                  )}
+                  title="Kanban Board"
+                >
+                  <Columns3 className="w-4 h-4" />
+                </button>
+              </div>
+              <button 
+                onClick={() => generateDailyDiscovery(true)}
+                disabled={isDailyDiscoveryLoading}
+                className="flex items-center gap-2 px-4 py-2 bg-aec-accent/10 hover:bg-aec-accent/20 text-aec-accent rounded-lg border border-aec-accent/30 transition-all font-bold text-sm disabled:opacity-50"
+              >
+                <Sparkles className={cn("w-4 h-4", isDailyDiscoveryLoading && "animate-spin")} />
+                {isDailyDiscoveryLoading ? 'Discovering...' : 'Discover New Idea'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -470,40 +607,66 @@ export default function Dashboard() {
         )}
 
         {activeView === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2">
-              <WorkflowDiscovery 
-                workflows={workflows} 
-                isLoading={isLoading} 
-                onSelectWorkflow={handleSelectWorkflow}
-                onOpenAddModal={() => setIsAddModalOpen(true)}
-                onSeedWorkflows={handleSeedWorkflows}
-              />
+          <div className={cn(
+            "grid gap-8",
+            dashboardMode === 'list' ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1"
+          )}>
+            <div className={cn(dashboardMode === 'list' ? "lg:col-span-2" : "")}>
+              {dashboardMode === 'list' ? (
+                <WorkflowDiscovery 
+                  workflows={workflows} 
+                  isLoading={isLoading} 
+                  onSelectWorkflow={handleSelectWorkflow}
+                  onOpenAddModal={() => setIsAddModalOpen(true)}
+                  onSeedWorkflows={handleSeedWorkflows}
+                />
+              ) : (
+                <KanbanBoard 
+                  workflows={workflows}
+                  onSelectWorkflow={handleSelectWorkflow}
+                />
+              )}
             </div>
-            <div className="space-y-6">
-              <AIAdvisor externalTrigger={automationTrigger} />
-              <div className="glass-panel p-6 bg-gradient-to-br from-aec-card to-aec-bg">
-                <h3 className="font-semibold text-slate-100 mb-4 flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-aec-accent" />
-                  Industry Trends
-                </h3>
-                <div className="space-y-4">
-                  {[
-                    { label: 'Generative Design', trend: '+45%', icon: Building2 },
-                    { label: 'Digital Twins', trend: '+30%', icon: HardHat },
-                    { label: 'Robotic Fabrication', trend: '+12%', icon: Cpu },
-                  ].map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 border border-aec-border/50">
-                      <div className="flex items-center gap-3">
-                        <item.icon className="w-4 h-4 text-slate-500" />
-                        <span className="text-sm text-slate-300">{item.label}</span>
-                      </div>
-                      <span className="text-xs font-mono text-aec-accent">{item.trend}</span>
+            {dashboardMode === 'list' && (
+              <div className="space-y-6">
+                {!selectedWorkflow && (
+                  <div className="h-[600px] animate-in fade-in duration-500">
+                    <AIAdvisor externalTrigger={automationTrigger} />
+                  </div>
+                )}
+                <div className="glass-panel p-6 bg-gradient-to-br from-aec-card to-aec-bg">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-slate-100 flex items-center gap-2">
+                      <Compass className="w-4 h-4 text-aec-accent" />
+                      Industry Trends
+                    </h3>
+                    <div className="flex gap-1">
+                      <button className="p-1.5 hover:bg-slate-800 rounded-md text-slate-500 hover:text-aec-accent transition-colors">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                      <button className="p-1.5 hover:bg-slate-800 rounded-md text-slate-500 hover:text-aec-accent transition-colors">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
                     </div>
-                  ))}
+                  </div>
+                  <div className="space-y-4">
+                    {[
+                      { label: 'Generative Design', trend: '+45%', icon: Building2 },
+                      { label: 'Digital Twins', trend: '+30%', icon: HardHat },
+                      { label: 'Robotic Fabrication', trend: '+12%', icon: Cpu },
+                    ].map((item, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 border border-aec-border/50">
+                        <div className="flex items-center gap-3">
+                          <item.icon className="w-4 h-4 text-slate-500" />
+                          <span className="text-sm text-slate-300">{item.label}</span>
+                        </div>
+                        <span className="text-xs font-mono text-aec-accent">{item.trend}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -519,9 +682,117 @@ export default function Dashboard() {
           </div>
         )}
 
+        {activeView === 'community' && (
+          <div className="max-w-6xl mx-auto">
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+                <Globe className="w-7 h-7 text-aec-accent" />
+                Community Library
+              </h2>
+              <p className="text-slate-400 mt-1">Discover and collaborate on AEC automation workflows from around the world.</p>
+            </div>
+            <div className="flex items-center gap-4 mb-8 p-1 bg-slate-900/50 rounded-xl border border-aec-border w-fit">
+              <button 
+                onClick={() => setCommunityTab('all')}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-bold transition-all",
+                  communityTab === 'all' ? "bg-aec-accent text-white shadow-lg shadow-aec-accent/20" : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                All Workflows
+              </button>
+              <button 
+                onClick={() => setCommunityTab('proven')}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                  communityTab === 'proven' ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Proven Automations
+              </button>
+              <button 
+                onClick={() => setCommunityTab('collaboration')}
+                className={cn(
+                  "px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                  communityTab === 'collaboration' ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                <Users className="w-4 h-4" />
+                Assistance Required
+              </button>
+            </div>
+
+            {isPublicLoading ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 className="w-10 h-10 text-aec-accent animate-spin mb-4" />
+                <p className="text-slate-400">Loading community workflows...</p>
+              </div>
+            ) : publicWorkflows.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {publicWorkflows
+                  .filter(w => {
+                    if (communityTab === 'proven') return w.status === 'Completed';
+                    if (communityTab === 'collaboration') return w.status !== 'Completed';
+                    return true;
+                  })
+                  .map(workflow => (
+                    <WorkflowCard 
+                      key={workflow.id} 
+                      workflow={workflow} 
+                      onClick={() => handleSelectWorkflow(workflow)}
+                      showStatus={true}
+                    />
+                  ))}
+              </div>
+            ) : (
+              <div className="text-center py-20 bg-aec-card/20 rounded-2xl border border-aec-border border-dashed">
+                <Globe className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-slate-300">No public workflows yet</h3>
+                <p className="text-slate-500 max-w-md mx-auto mt-2">
+                  Be the first to share an automation workflow with the community! 
+                  Toggle "Public" when adding a new workflow.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeView === 'published' && (
+          <div className="max-w-6xl mx-auto">
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
+                <BookCheck className="w-7 h-7 text-aec-accent" />
+                My Published Workflows
+              </h2>
+              <p className="text-slate-400 mt-1">Workflows you've shared with the global AEC community.</p>
+            </div>
+            {workflows.filter(w => w.isPublic).length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {workflows.filter(w => w.isPublic).map(workflow => (
+                  <WorkflowCard 
+                    key={workflow.id} 
+                    workflow={workflow} 
+                    onClick={() => handleSelectWorkflow(workflow)}
+                    showStatus={true}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20 bg-aec-card/20 rounded-2xl border border-aec-border border-dashed">
+                <BookCheck className="w-12 h-12 text-slate-700 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-slate-300">You haven't published anything yet</h3>
+                <p className="text-slate-500 max-w-md mx-auto mt-2">
+                  Share your expertise! Mark your best workflows as "Public" to see them here and help others in the community.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeView === 'settings' && (
           <div className="max-w-4xl mx-auto">
-            <SettingsView />
+            <SettingsView workflows={workflows} />
           </div>
         )}
       </main>
@@ -534,7 +805,10 @@ export default function Dashboard() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="glass-panel w-full max-w-2xl bg-aec-bg overflow-hidden shadow-2xl"
+              className={cn(
+                "glass-panel w-full bg-aec-bg overflow-hidden shadow-2xl transition-all duration-300",
+                activeModalTab === 'plan' ? "max-w-4xl" : "max-w-2xl"
+              )}
             >
               <div className="p-6 border-b border-aec-border flex justify-between items-center bg-aec-card/50">
                 <div className="flex items-center gap-3">
@@ -576,7 +850,10 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              <div className="p-8 space-y-8 max-h-[75vh] overflow-y-auto">
+              <div className={cn(
+                "max-h-[80vh] flex flex-col",
+                activeModalTab === 'details' ? "p-8 overflow-y-auto space-y-8" : "p-0 overflow-hidden"
+              )}>
                 {activeModalTab === 'details' ? (
                   <>
                     <section>
@@ -641,42 +918,90 @@ export default function Dashboard() {
                     </div>
 
                     <div className="pt-6 border-t border-aec-border">
-                      <button 
-                        onClick={() => {
-                          if (selectedWorkflow) {
-                            setAutomationTrigger({
-                              workflow: selectedWorkflow,
-                              timestamp: Date.now()
-                            });
-                            setActiveModalTab('plan');
-                          }
-                        }}
-                        className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2 mb-3"
-                      >
-                        <Sparkles className="w-5 h-5" />
-                        Generate Automation Plan
-                      </button>
-                      <button 
-                        onClick={() => markAsCompleted(selectedWorkflow.id)}
-                        disabled={isUpdatingStatus}
-                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-aec-border mb-3"
-                      >
-                        <CheckCircle2 className="w-5 h-5 text-aec-accent" />
-                        {isUpdatingStatus ? 'Updating...' : 'Mark as Completed'}
-                      </button>
-                      <button 
-                        onClick={() => setWorkflowToDelete(selectedWorkflow.id)}
-                        disabled={isUpdatingStatus}
-                        className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-red-500/20"
-                      >
-                        <Trash2 className="w-5 h-5" />
-                        Delete Workflow
-                      </button>
+                      {selectedWorkflow.userId === auth.currentUser?.uid ? (
+                        <>
+                          <button 
+                            onClick={() => {
+                              if (selectedWorkflow) {
+                                setAutomationTrigger({
+                                  workflow: selectedWorkflow,
+                                  timestamp: Date.now()
+                                });
+                                setActiveModalTab('plan');
+                              }
+                            }}
+                            className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2 mb-3"
+                          >
+                            <Sparkles className="w-5 h-5" />
+                            Generate Automation Plan
+                          </button>
+                          <button 
+                            onClick={() => markAsCompleted(selectedWorkflow.id)}
+                            disabled={isUpdatingStatus}
+                            className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-aec-border mb-3"
+                          >
+                            <CheckCircle2 className="w-5 h-5 text-aec-accent" />
+                            {isUpdatingStatus ? 'Updating...' : 'Mark as Completed'}
+                          </button>
+                          <button 
+                            onClick={() => toggleWorkflowVisibility(selectedWorkflow)}
+                            disabled={isUpdatingStatus}
+                            className={cn(
+                              "w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border mb-3",
+                              selectedWorkflow.isPublic 
+                                ? "bg-blue-500/10 border-blue-500/20 text-blue-400 hover:bg-blue-500/20" 
+                                : "bg-slate-800 border-aec-border text-slate-200 hover:bg-slate-700"
+                            )}
+                          >
+                            {selectedWorkflow.isPublic ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                            {isUpdatingStatus ? 'Updating...' : selectedWorkflow.isPublic ? 'Make Private' : 'Share with Community'}
+                          </button>
+                          <button 
+                            onClick={() => setWorkflowToDelete(selectedWorkflow.id)}
+                            disabled={isUpdatingStatus}
+                            className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-red-500/20"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                            Delete Workflow
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={async () => {
+                            if (!auth.currentUser) return;
+                            setIsUpdatingStatus(true);
+                            try {
+                              const { id, ...workflowData } = selectedWorkflow;
+                              await addDoc(collection(db, 'workflows'), {
+                                ...workflowData,
+                                userId: auth.currentUser.uid,
+                                createdAt: new Date().toISOString(),
+                                status: 'Pending',
+                                isPublic: false // Keep it private in their own dashboard
+                              });
+                              alert("✅ Workflow added to your dashboard!");
+                              setSelectedWorkflow(null);
+                            } catch (error) {
+                              console.error("Error cloning workflow:", error);
+                            } finally {
+                              setIsUpdatingStatus(false);
+                            }
+                          }}
+                          disabled={isUpdatingStatus}
+                          className="w-full py-3 bg-aec-accent hover:bg-emerald-600 text-white rounded-xl font-bold transition-all shadow-lg shadow-aec-accent/20 flex items-center justify-center gap-2"
+                        >
+                          <PlusCircle className="w-5 h-5" />
+                          {isUpdatingStatus ? 'Adding...' : 'Add to my Dashboard'}
+                        </button>
+                      )}
                     </div>
                   </>
                 ) : (
-                  <div className="h-[500px]">
-                    <AIAdvisor externalTrigger={automationTrigger} />
+                  <div className="h-[700px]">
+                    <AIAdvisor 
+                      externalTrigger={selectedWorkflow ? automationTrigger : null} 
+                      embedded={true}
+                    />
                   </div>
                 )}
               </div>
@@ -707,10 +1032,19 @@ export default function Dashboard() {
               
               <form onSubmit={handleAddWorkflow} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Title</label>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold text-slate-500 uppercase">Title</label>
+                    <span className={cn(
+                      "text-[10px] font-mono",
+                      newWorkflow.title.length < 5 ? "text-red-400" : "text-emerald-400"
+                    )}>
+                      {newWorkflow.title.length}/50
+                    </span>
+                  </div>
                   <input 
                     required
                     type="text"
+                    maxLength={50}
                     value={newWorkflow.title}
                     onChange={e => setNewWorkflow({...newWorkflow, title: e.target.value})}
                     className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none"
@@ -773,25 +1107,71 @@ export default function Dashboard() {
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Visibility</label>
+                  <button
+                    type="button"
+                    onClick={() => setNewWorkflow({...newWorkflow, isPublic: !newWorkflow.isPublic})}
+                    className={cn(
+                      "w-full flex items-center justify-between px-4 py-2 rounded-lg border text-sm transition-all",
+                      newWorkflow.isPublic 
+                        ? "bg-aec-accent/10 border-aec-accent text-aec-accent" 
+                        : "bg-slate-900 border-aec-border text-slate-400"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      {newWorkflow.isPublic ? <Globe className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                      {newWorkflow.isPublic ? 'Public' : 'Private'}
+                    </div>
+                    <div className={cn(
+                      "w-8 h-4 rounded-full relative transition-colors",
+                      newWorkflow.isPublic ? "bg-aec-accent" : "bg-slate-700"
+                    )}>
+                      <div className={cn(
+                        "absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all",
+                        newWorkflow.isPublic ? "right-0.5" : "left-0.5"
+                      )} />
+                    </div>
+                  </button>
+                </div>
+
+                <div>
                   <div className="flex justify-between items-center mb-1">
                     <label className="block text-xs font-bold text-slate-500 uppercase">Description</label>
-                    <button 
-                      type="button"
-                      onClick={generateAIDescription}
-                      disabled={!newWorkflow.title || isGeneratingDescription}
-                      className="text-[10px] font-bold text-aec-accent hover:text-emerald-400 flex items-center gap-1 transition-colors disabled:opacity-50"
-                    >
-                      {isGeneratingDescription ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                      AI Suggest
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <span className={cn(
+                        "text-[10px] font-mono",
+                        newWorkflow.description.length < 20 ? "text-red-400" : "text-emerald-400"
+                      )}>
+                        {newWorkflow.description.length}/500
+                      </span>
+                      <button 
+                        type="button"
+                        onClick={generateAIDescription}
+                        disabled={!newWorkflow.title || isGeneratingDescription}
+                        className="text-[10px] font-bold text-aec-accent hover:text-emerald-400 flex items-center gap-1 transition-colors disabled:opacity-50"
+                      >
+                        {isGeneratingDescription ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                        AI Suggest
+                      </button>
+                    </div>
                   </div>
                   <textarea 
                     required
+                    maxLength={500}
                     value={newWorkflow.description}
                     onChange={e => setNewWorkflow({...newWorkflow, description: e.target.value})}
                     className="w-full bg-slate-900 border border-aec-border rounded-lg px-4 py-2 text-sm focus:ring-1 focus:ring-aec-accent outline-none h-20 resize-none"
-                    placeholder="Describe the workflow..."
+                    placeholder="Describe the workflow in detail..."
                   />
+                </div>
+
+                <div className="p-3 bg-aec-accent/5 border border-aec-accent/20 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-aec-accent shrink-0 mt-0.5" />
+                    <div className="text-[10px] text-slate-400 leading-relaxed">
+                      <span className="text-aec-accent font-bold uppercase">Quality Check:</span> Ensure your workflow is specific to AEC. Avoid generic titles. High-quality workflows are more likely to be cloned by the community.
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

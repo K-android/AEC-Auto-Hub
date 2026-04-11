@@ -1,14 +1,15 @@
 import React from 'react';
 import { Workflow } from '../types';
-import { Zap, Clock, Wrench, BarChart3, ChevronRight, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Zap, Clock, Wrench, BarChart3, ChevronRight, Sparkles, CheckCircle2, Globe, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface Props {
   workflow: Workflow;
   onClick: (w: Workflow) => void;
+  showStatus?: boolean;
 }
 
-export default function WorkflowCard({ workflow, onClick }: Props) {
+export default function WorkflowCard({ workflow, onClick, showStatus = true }: Props) {
   const getPotentialColor = (p: number) => {
     if (p > 80) return 'text-emerald-400';
     if (p > 50) return 'text-amber-400';
@@ -54,10 +55,23 @@ export default function WorkflowCard({ workflow, onClick }: Props) {
               {workflow.priority}
             </span>
           )}
-          {workflow.status === 'Completed' && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1">
-              <CheckCircle2 className="w-2 h-2" />
-              Completed
+          {showStatus && (
+            workflow.status === 'Completed' ? (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1 shadow-sm shadow-emerald-500/10">
+                <CheckCircle2 className="w-2 h-2" />
+                Proven
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-blue-500/10 text-blue-400 border-blue-500/20 flex items-center gap-1 shadow-sm shadow-blue-500/10">
+                <Users className="w-2 h-2" />
+                Assistance Required
+              </span>
+            )
+          )}
+          {workflow.isPublic && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-blue-500/10 text-blue-400 border-blue-500/20 flex items-center gap-1">
+              <Globe className="w-2 h-2" />
+              Public
             </span>
           )}
         </div>

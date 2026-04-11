@@ -107,6 +107,7 @@ export default function WorkflowDiscovery({ workflows, isLoading, onSelectWorkfl
                   key={workflow.id} 
                   workflow={workflow} 
                   onClick={onSelectWorkflow}
+                  showStatus={false}
                 />
               ))
             ) : workflows.length === 0 ? (
