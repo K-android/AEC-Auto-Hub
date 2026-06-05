@@ -1,5 +1,6 @@
 {
   "name": "AEC Workflow Automator",
   "description": "Identify, analyze, and plan automation for Architecture, BIM, and Construction workflows using AI-driven insights.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

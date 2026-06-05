@@ -1,13 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { Send, Bot, User, Loader2, Sparkles, PlusCircle, Copy, Check, FileText, Layers, ListChecks, Code2, AlertTriangle, Download } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { jsPDF } from "jspdf";
 import { cn } from '../lib/utils';
 import { Workflow } from '../types';
 import { auth, db, collection, addDoc } from '../firebase';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 interface Props {
   externalTrigger?: {
@@ -116,74 +113,20 @@ export default function AIAdvisor({ externalTrigger, embedded }: Props) {
     setLastSuggestedWorkflow(null);
 
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `You are an expert AEC (Architecture, Engineering, Construction) Automation Consultant. 
-            
-            ${isPlanRequest ? 'The user is requesting a detailed automation plan for an EXISTING workflow. Focus on technical implementation.' : 'If the user describes a new workflow they want to add to their dashboard, you MUST return a JSON object with the workflow details. Set "isPublic" to false by default unless they explicitly ask to share it with the community. BE STRICT: Only suggest adding a workflow if it is a legitimate AEC-related task. If the request is nonsensical or unrelated to AEC, respond with a polite CHAT message explaining your purpose.'}
-            If the user is just asking a general question, return a text response.
-            
-            User request: ${userMessage}` }]
-          }
-        ],
-        config: {
-          systemInstruction: `You are a specialized AI for AEC automation. 
-          
-          Intents:
-          - "ADD_WORKFLOW": Use this if the user describes a NEW task they want to track/automate.
-          - "PLAN": Use this if the user is asking for a technical implementation plan for a workflow. You MUST use the provided tech stack and follow a structured Markdown format with clear headings.
-          - "CHAT": Use this for general questions or conversation.
-
-          If the intent is ADD_WORKFLOW, provide the details in JSON format. 
-          The JSON should have:
-          - "intent": "ADD_WORKFLOW", "PLAN", or "CHAT"
-          - "message": A helpful text response to the user. For "PLAN", this MUST be a highly structured technical guide in Markdown, strictly utilizing the tools mentioned in the user's request or the provided tech stack.
-          - "workflow": (Only if intent is ADD_WORKFLOW) An object with:
-            - "title": string
-            - "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction"
-            - "description": A professional, contextually relevant description of exactly one or two sentences. Focus on how this workflow automates processes and improves efficiency in the AEC industry.
-            - "painPoint": string
-            - "automationPotential": number (0-100)
-            - "complexity": "Low" | "Medium" | "High"
-            - "tools": string[]
-            - "roi": string
-            - "priority": "P0" | "P1" | "P2" | "P3"
-            - "estimatedEffort": string
-            - "isPublic": boolean
-            - "workflowId": string (if applicable)
-            - "successMetrics": string`,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              intent: { type: Type.STRING },
-              message: { type: Type.STRING },
-              workflow: {
-                type: Type.OBJECT,
-                properties: {
-                  title: { type: Type.STRING },
-                  category: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  painPoint: { type: Type.STRING },
-                  automationPotential: { type: Type.NUMBER },
-                  complexity: { type: Type.STRING },
-                  tools: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  roi: { type: Type.STRING },
-                  priority: { type: Type.STRING },
-                  estimatedEffort: { type: Type.STRING },
-                  isPublic: { type: Type.BOOLEAN },
-                  successMetrics: { type: Type.STRING }
-                }
-              }
-            }
-          }
-        }
+      const response = await fetch("/api/ai/advisor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userMessage,
+          isPlanRequest,
+        }),
       });
 
-      const data = JSON.parse(response.text || '{}');
+      if (!response.ok) {
+        throw new Error("Server-side advisor request failed");
+      }
+
+      const data = await response.json();
       const assistantMessage = data.message || "I've analyzed your request.";
       
       // Only suggest adding if it's explicitly a NEW workflow suggestion

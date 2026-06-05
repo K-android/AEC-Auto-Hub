@@ -64,7 +64,6 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { GoogleGenAI } from "@google/genai";
 
 type View = 'dashboard' | 'completed' | 'analytics' | 'settings' | 'community' | 'published';
 
@@ -122,47 +121,31 @@ export default function Dashboard() {
 
     setIsDailyDiscoveryLoading(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate a unique and innovative AEC (Architecture, Engineering, Construction) automation workflow idea. 
-        The idea should be practical but forward-thinking.
-        Return it as a JSON object matching this structure:
-        {
-          "title": "string",
-          "category": "Architecture" | "BIM" | "Structural" | "MEP" | "Construction",
-          "description": "A professional, contextually relevant description of exactly one or two sentences. Focus on how this workflow automates processes and improves efficiency in the AEC industry.",
-          "painPoint": "string",
-          "automationPotential": number (0-100),
-          "complexity": "Low" | "Medium" | "High",
-          "tools": ["string", "string"],
-          "roi": "Low" | "Medium" | "High" | "Very High",
-          "priority": "P0" | "P1" | "P2" | "P3",
-          "estimatedEffort": "string",
-          "successMetrics": "string"
-        }`,
-        config: {
-          responseMimeType: "application/json"
-        }
+      const response = await fetch("/api/ai/daily-discovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
+      
+      if (!response.ok) {
+        throw new Error("Server-side daily discovery failed");
+      }
 
-      if (response.text) {
-        const workflowData = JSON.parse(response.text);
-        await addDoc(collection(db, 'workflows'), {
-          ...workflowData,
-          userId: auth.currentUser.uid,
-          createdAt: new Date().toISOString(),
-          isAIDiscovery: true,
-          status: 'Pending'
-        });
-        
-        if (isManual) {
-          // If manual, we don't necessarily update the lastDiscoveryDate 
-          // to allow the auto-one to still run tomorrow if they just wanted an extra one today
-          // but for simplicity let's just say it counts as today's
-          const today = new Date().toISOString().split('T')[0];
-          localStorage.setItem(`lastDiscoveryDate_${auth.currentUser.uid}`, today);
-        }
+      const workflowData = await response.json();
+
+      await addDoc(collection(db, 'workflows'), {
+        ...workflowData,
+        userId: auth.currentUser.uid,
+        createdAt: new Date().toISOString(),
+        isAIDiscovery: true,
+        status: 'Pending'
+      });
+      
+      if (isManual) {
+        // If manual, we don't necessarily update the lastDiscoveryDate 
+        // to allow the auto-one to still run tomorrow if they just wanted an extra one today
+        // but for simplicity let's just say it counts as today's
+        const today = new Date().toISOString().split('T')[0];
+        localStorage.setItem(`lastDiscoveryDate_${auth.currentUser.uid}`, today);
       }
     } catch (error) {
       console.error("Failed to generate daily discovery:", error);
@@ -334,18 +317,22 @@ export default function Dashboard() {
     
     setIsGeneratingDescription(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Generate a professional, contextually relevant description for an AEC (Architecture, Engineering, Construction) workflow. 
-        Title: "${newWorkflow.title}"
-        Category: "${newWorkflow.category}"
-        
-        The description MUST be exactly one or two sentences long. Focus on how this workflow automates processes and improves efficiency in the AEC industry. Do not include any introductory text or formatting.`,
+      const response = await fetch("/api/ai/describe-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newWorkflow.title,
+          category: newWorkflow.category,
+        }),
       });
-      
-      if (response.text) {
-        setNewWorkflow(prev => ({ ...prev, description: response.text.trim() }));
+
+      if (!response.ok) {
+        throw new Error("Server-side description generation failed");
+      }
+
+      const data = await response.json();
+      if (data.text) {
+        setNewWorkflow(prev => ({ ...prev, description: data.text }));
       }
     } catch (error) {
       console.error("Failed to generate AI description:", error);
